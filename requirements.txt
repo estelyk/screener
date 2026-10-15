@@ -1,0 +1,6 @@
+pandas>=2.0
+requests>=2.31
+lxml>=5.0
+pytest>=8.0
+yfinance>=0.2.50
+cryptography>=42

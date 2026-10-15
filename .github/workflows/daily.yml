@@ -1,0 +1,111 @@
+# Runs the screener every weekday after the US market closes and publishes the
+# encrypted page to GitHub Pages. Logs are public on a public repo, so the scripts
+# print only counts here (see QUIET in config.py).
+name: Daily screen
+
+on:
+  schedule:
+    - cron: "17 22 * * 1-5"   # 22:17 UTC = 6:17pm ET in summer, 5:17pm ET in winter
+  workflow_dispatch:           # adds a "Run workflow" button for manual runs
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  issues: write
+
+concurrency:
+  group: daily-screen
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      new_signal: ${{ steps.alert.outputs.new_signal }}
+    env:
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      PAGE_PASSPHRASE: ${{ secrets.PAGE_PASSPHRASE }}
+      PAGE_SALT: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Check secrets are set
+        run: |
+          [ -n "$SEC_USER_AGENT" ] || { echo "::error::Missing secret SEC_USER_AGENT"; exit 1; }
+          [ -n "$PAGE_PASSPHRASE" ] || { echo "::error::Missing secret PAGE_PASSPHRASE"; exit 1; }
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Tests
+        run: python -m pytest -q tests
+
+      # SEC data and the S&P 500 list are kept between runs (refreshed weekly/monthly).
+      - name: Restore saved data
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            data
+            state
+          key: screener-data-${{ github.run_id }}
+          restore-keys: screener-data-
+
+      - name: Phase 1 - quality screen
+        run: python run_phase1.py
+
+      - name: Phase 2 and 3 - valuation and page
+        run: python run_phase2.py
+
+      - name: Check for new buy signals
+        id: alert
+        run: python alerts.py
+
+      - name: Save data for next run
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            data
+            state
+          key: screener-data-${{ github.run_id }}
+
+      - name: Make sure the page is encrypted
+        run: |
+          grep -q '"locked":1' site/index.html || { echo "::error::Page is not encrypted; refusing to publish"; exit 1; }
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: screen
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  alert:
+    needs: [screen, deploy]
+    if: needs.screen.outputs.new_signal == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open an alert issue (GitHub emails you; no ticker is included)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh issue create \
+            --title "New buy signal ($(date -u +%Y-%m-%d))" \
+            --body "@${{ github.repository_owner }} A new buy signal appeared. Open your Value Screener page to see it."
