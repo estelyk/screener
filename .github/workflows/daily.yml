@@ -29,6 +29,7 @@ jobs:
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       PAGE_PASSPHRASE: ${{ secrets.PAGE_PASSPHRASE }}
       PAGE_SALT: ${{ github.repository }}
+      HOLDINGS: ${{ secrets.HOLDINGS }}   # optional, e.g. "KO, COST"
     steps:
       - uses: actions/checkout@v6
 
@@ -66,8 +67,6 @@ jobs:
 
       - name: Check for new buy signals and holding reviews
         id: alert
-        env:
-          HOLDINGS: ${{ secrets.HOLDINGS }}   # optional, e.g. "KO, COST"
         run: python alerts.py
 
       - name: Save data for next run

@@ -135,3 +135,23 @@ def test_page_data_carries_review_flags():
     by = {c["ticker"]: c for c in data["companies"]}
     assert by["AAA"]["review"][0]["kind"] == "overvalued"
     assert by["BBB"]["review"][0]["kind"] == "quality"
+
+
+# ---------------- descriptions ----------------
+def test_descriptions_fetch_priority_first_then_a_batch(tmp_path, monkeypatch):
+    import profiles
+    monkeypatch.setattr(profiles, "DESC_CACHE", tmp_path / "desc.json")
+    monkeypatch.setattr(profiles, "DESC_BATCH", 2)
+    fetched = []
+    def fake(t):
+        fetched.append(t)
+        return "" if t == "BAD" else f"{t} makes things. It sells them. It is big. Extra sentence."
+    others = ["AAA", "BBB", "CCC", "DDD"]
+    got = profiles.descriptions(["MSFT", "BAD"], others, fetch=fake)
+    assert fetched == ["MSFT", "BAD", "AAA", "BBB"]               # holdings first, then 2 others
+    assert got["MSFT"] == "MSFT makes things. It sells them. It is big."   # trimmed to 3 sentences
+    assert "BAD" not in got
+    fetched.clear()
+    got = profiles.descriptions(["MSFT", "BAD"], others, fetch=fake)
+    assert fetched == ["CCC", "DDD"]                                # cached ones skipped; failure waits a week
+    assert set(got) == {"MSFT", "AAA", "BBB", "CCC", "DDD"}

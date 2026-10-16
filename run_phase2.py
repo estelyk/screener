@@ -146,11 +146,15 @@ def main() -> None:
             from edgar import EdgarClient
             from metrics import ALL_TAGS
             from profiles import build_profiles
-            shortlist = [r["ticker"] for r in results if r["signal"]]
-            shortlist += [r["ticker"] for r in results
-                          if not r["signal"] and r["to_buy_price"] is not None][:C.WATCHLIST_SIZE]
+            from alerts import parse_holdings
+            # Descriptions: your holdings and today's signals/watchlist first.
+            priority = parse_holdings(os.environ.get("HOLDINGS"))
+            priority += [r["ticker"] for r in results if r["signal"]]
+            priority += [r["ticker"] for r in results
+                         if not r["signal"] and r["to_buy_price"] is not None][:C.WATCHLIST_SIZE]
+            screened = [json.loads(p.read_text()) for p in sorted((OUT / "companies").glob("*.json"))]
             print(f"\nFetching filing links and company descriptions...")
-            profiles = build_profiles(EdgarClient(ua, keep_tags=ALL_TAGS), companies, shortlist)
+            profiles = build_profiles(EdgarClient(ua, keep_tags=ALL_TAGS), screened, priority)
             (OUT / "profiles.json").write_text(json.dumps(profiles))
         except Exception as e:
             print(f"(Skipped profiles: {type(e).__name__}: {e})")

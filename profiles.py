@@ -1,9 +1,11 @@
 """What each company does, plus links to its filings, for the briefs.
 
 - Filing links (latest 10-K, latest earnings release) come from SEC for every
-  passing company.
-- The plain-English description comes from Yahoo, fetched only for buy signals and
-  the watchlist (the companies whose briefs you'll actually read), cached 30 days.
+  screened company (cached a week).
+- The plain-English description comes from Yahoo. Priority companies (buy signals,
+  the watchlist and your HOLDINGS) are always fetched; every other company is filled
+  in gradually, DESC_BATCH per run, so the whole S&P 500 is covered within a few
+  weeks without slowing any single run. Descriptions are kept for 6 months.
 - Every fetch is best-effort: if anything fails, the page still builds without it.
 """
 from __future__ import annotations
@@ -16,7 +18,9 @@ from pathlib import Path
 import pandas as pd
 
 DESC_CACHE = Path("data/cache/descriptions.json")
-DESC_MAX_AGE = 30 * 86400
+DESC_MAX_AGE = 180 * 86400     # businesses rarely change what they do
+RETRY_AFTER = 7 * 86400        # a failed fetch is retried a week later
+DESC_BATCH = 60                # non-priority descriptions fetched per run
 UNIVERSE = Path("data/sp500.csv")
 
 
@@ -25,25 +29,51 @@ def _short(text: str, sentences: int = 3) -> str:
     return " ".join(parts[:sentences])
 
 
-def descriptions(tickers: list[str]) -> dict[str, str]:
+def _needs_fetch(entry: dict | None, now: float) -> bool:
+    if not entry:
+        return True
+    if entry.get("text"):
+        return now - entry.get("at", 0) > DESC_MAX_AGE
+    return now - entry.get("tried", 0) > RETRY_AFTER
+
+
+def plan_fetch(cache: dict, priority: list[str], others: list[str], now: float,
+               batch: int | None = None) -> list[str]:
+    """Which tickers to fetch this run: all stale priority ones, then up to `batch`
+    others, oldest-missing first."""
+    batch = DESC_BATCH if batch is None else batch
+    seen, todo = set(), []
+    for t in priority:
+        if t not in seen and _needs_fetch(cache.get(t), now):
+            todo.append(t)
+        seen.add(t)
+    rest = [t for t in others if t not in seen and _needs_fetch(cache.get(t), now)]
+    rest.sort(key=lambda t: (cache.get(t) or {}).get("tried", 0))
+    return todo + rest[:batch]
+
+
+def _fetch_one(ticker: str) -> str:
+    import yfinance as yf
+    try:
+        return yf.Ticker(ticker.replace(".", "-")).info.get("longBusinessSummary") or ""
+    except Exception:
+        return ""
+
+
+def descriptions(priority: list[str], others: list[str] = (), fetch=_fetch_one) -> dict[str, str]:
     cache = json.loads(DESC_CACHE.read_text()) if DESC_CACHE.exists() else {}
     now = time.time()
-    stale = [t for t in tickers if now - cache.get(t, {}).get("at", 0) > DESC_MAX_AGE]
-    if stale:
-        try:
-            import yfinance as yf
-            for t in stale:
-                try:
-                    text = yf.Ticker(t.replace(".", "-")).info.get("longBusinessSummary") or ""
-                except Exception:
-                    text = ""
-                if text:
-                    cache[t] = {"at": now, "text": _short(text)}
-        except Exception:
-            pass
+    todo = plan_fetch(cache, list(priority), list(others), now)
+    for t in todo:
+        text = fetch(t)
+        if text:
+            cache[t] = {"at": now, "text": _short(text)}
+        else:  # keep any older text; just remember we tried
+            cache[t] = {**(cache.get(t) or {}), "tried": now}
+    if todo:
         DESC_CACHE.parent.mkdir(parents=True, exist_ok=True)
         DESC_CACHE.write_text(json.dumps(cache))
-    return {t: cache[t]["text"] for t in tickers if t in cache}
+    return {t: e["text"] for t, e in cache.items() if e.get("text")}
 
 
 def sub_industries() -> dict[str, str]:
@@ -53,9 +83,9 @@ def sub_industries() -> dict[str, str]:
     return dict(zip(df["ticker"], df["sub_industry"]))
 
 
-def build_profiles(client, companies: list[dict], shortlist: list[str]) -> dict[str, dict]:
-    """{ticker: {description, industry, ten_k, earnings, ...}}"""
-    desc = descriptions(shortlist)
+def build_profiles(client, companies: list[dict], priority: list[str]) -> dict[str, dict]:
+    """{ticker: {description, industry, ten_k, earnings, ...}} for every company given."""
+    desc = descriptions(priority, [c["ticker"] for c in companies])
     subs = sub_industries()
     out = {}
     for c in companies:
