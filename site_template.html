@@ -154,6 +154,15 @@ details.settings summary::-webkit-details-marker { display: none; }
 .checks li:first-child { border-top: 0; }
 .checks li::before { content: "\2713"; position: absolute; left: 2px; color: var(--good); font-weight: 700; }
 .checks li span { display: block; color: var(--text-2); font-size: 13.5px; }
+.checks li.fail::before { content: "\2715"; color: var(--crit); }
+.checks li.na::before { content: "?"; color: var(--text-3); }
+.searchbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--page);
+             padding-block: 10px 6px; margin-top: 6px; }
+.searchbar input { margin: 0; font-size: 16px; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px);
+               z-index: 10; background: var(--page); }
+.pill.bad { background: var(--warn-wash); color: var(--text); }
+.st-fail { color: var(--text-2); }
 p { margin: 0; }
 .charts { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .chart .ct { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
@@ -257,7 +266,7 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     storedKey().then(openWith).then(boot).catch(function () { forgetKey(); lockScreen(); });
   }
   var KEY = "valueScreener.sizing.v1";
-  var homeScroll = 0;
+  var homeScroll = 0, lastQuery = "";
 
   // ---------- helpers ----------
   function esc(s) {
@@ -344,9 +353,13 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
       '<div class="wide"><label for="sHeld">Already own (tickers)</label><input id="sHeld" placeholder="e.g. KO, COST" autocapitalize="characters"></div>' +
       '</div></details>';
 
+    h += '<div class="searchbar"><input type="search" id="q" placeholder="Search any S&amp;P 500 company" ' +
+      'aria-label="Search any S&amp;P 500 company by ticker or name" autocomplete="off" autocorrect="off" spellcheck="false"></div>' +
+      '<div id="results" hidden></div><div id="homeBody">';
+
     h += '<div class="summary">' +
       '<div class="stat"><b>' + signals.length + '</b><span>buy signal' + (signals.length === 1 ? "" : "s") + '</span></div>' +
-      '<div class="stat"><b>' + DATA.companies.length + '</b><span>quality businesses</span></div>' +
+      '<div class="stat"><b>' + passing().length + '</b><span>quality businesses</span></div>' +
       '<div class="stat"><b>' + pct(DATA.settings.margin) + '</b><span>margin of safety</span></div></div>';
 
     h += '<h2>Buy signals</h2>';
@@ -377,10 +390,11 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     h += '<h2>Watchlist</h2><p class="muted" style="margin:-4px 0 10px">Closest to their buy price. A fuller bar means closer.</p>';
     h += watch.length ? '<div class="list">' + watch.map(row).join("") + '</div>' : '<div class="card empty">Nothing valued yet.</div>';
 
-    h += '<h2>All quality businesses</h2><input type="search" id="q" placeholder="Search ticker or name" aria-label="Search">' +
-         '<div class="list" id="all">' + DATA.companies.map(row).join("") + '</div>';
+    h += '<h2>All quality businesses</h2><p class="muted" style="margin:-4px 0 10px">The ' + passing().length +
+         ' companies that passed the quality screen, closest to their buy price first.</p>' +
+         '<div class="list">' + passing().map(row).join("") + '</div>';
 
-    h += footer();
+    h += '</div>' + footer();
     app.innerHTML = h;
     window.scrollTo(0, homeScroll);
     wireHome(s);
@@ -390,6 +404,9 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     var right;
     if (c.signal) right = '<div style="color:var(--good-ink);font-weight:650">Buy signal</div><div>' + pct(c.discount) + ' below value</div>';
     else if (c.to_buy_price != null) right = '<div>' + px(c.price) + '</div><div>needs ' + pct(c.to_buy_price) + ' drop</div>';
+    else if (c.status === "FAIL") right = '<div class="st-fail">Didn’t pass</div><div>' + esc(failedNames(c)) + '</div>';
+    else if (c.status === "NO_DATA") right = '<div class="st-fail">Not judged</div><div>too little history</div>';
+    else if (c.status === "EXCLUDED") right = '<div class="st-fail">Not screened</div><div>' + esc(c.sector) + '</div>';
     else right = '<div>—</div><div>not valued</div>';
     var nearness = c.to_buy_price != null && !c.signal ? Math.max(4, 100 - c.to_buy_price * 100) : 0;
     return '<a class="li" href="#/' + encodeURIComponent(c.ticker) + '" data-k="' + esc((c.ticker + " " + c.name).toLowerCase()) + '">' +
@@ -423,12 +440,50 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
       });
     });
     var q = document.getElementById("q");
-    q.addEventListener("input", function () {
-      var v = q.value.trim().toLowerCase();
-      Array.prototype.forEach.call(document.querySelectorAll("#all .li"), function (a) {
-        a.style.display = !v || a.getAttribute("data-k").indexOf(v) >= 0 ? "" : "none";
-      });
-    });
+    q.value = lastQuery;
+    q.addEventListener("input", function () { lastQuery = q.value; showResults(); });
+    if (lastQuery) showResults();
+  }
+
+  // Search the whole S&P 500: exact ticker first, then tickers starting with the
+  // query, then names containing it.
+  function search(v) {
+    v = v.trim().toLowerCase();
+    if (!v) return [];
+    var score = function (c) {
+      var t = c.ticker.toLowerCase(), n = c.name.toLowerCase();
+      if (t === v) return 0;
+      if (t.indexOf(v) === 0) return 1;
+      if (n.indexOf(v) === 0) return 2;
+      if (n.indexOf(v) >= 0 || t.indexOf(v) >= 0) return 3;
+      return 9;
+    };
+    return DATA.companies.map(function (c) { return [score(c), c]; })
+      .filter(function (p) { return p[0] < 9; })
+      .sort(function (a, b) { return a[0] - b[0] || a[1].ticker.localeCompare(b[1].ticker); })
+      .slice(0, 30).map(function (p) { return p[1]; });
+  }
+
+  function showResults() {
+    var res = document.getElementById("results"), body = document.getElementById("homeBody");
+    var hits = search(lastQuery);
+    if (!lastQuery.trim()) { res.hidden = true; body.hidden = false; return; }
+    body.hidden = true; res.hidden = false;
+    res.innerHTML = hits.length
+      ? '<p class="muted" style="margin:6px 0 10px">' + hits.length + (hits.length === 30 ? '+' : '') + ' match' + (hits.length === 1 ? '' : 'es') + '</p>' +
+        '<div class="list">' + hits.map(row).join("") + '</div>'
+      : '<div class="card empty" style="margin-top:8px">No S&amp;P 500 company matches “' + esc(lastQuery.trim()) + '”. Try a ticker like KO or a name like Coca.</div>';
+  }
+
+  function passing() { return DATA.companies.filter(function (c) { return (c.status || "PASS") === "PASS"; }); }
+
+  var CHECK_NAMES = { history: "Long track record", returns: "High, steady returns on capital", debt: "Low debt",
+                      fcf: "Reliable free cash flow", earnings: "Consistent earnings" };
+  var CHECK_SHORT = { history: "history", returns: "returns", debt: "debt", fcf: "cash flow", earnings: "earnings" };
+  function failedNames(c) {
+    var f = (c.checks || []).filter(function (k) { return k.passed === false; })
+      .map(function (k) { return CHECK_SHORT[k.name] || k.name; });
+    return f.length ? "failed: " + f.join(", ") : "";
   }
 
   // ---------- charts ----------
@@ -491,21 +546,33 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     var status;
     if (c.signal) status = '<span class="pill good">Buy signal · ' + pct(c.discount) + ' below value</span>';
     else if (c.to_buy_price != null) status = '<span class="pill">Watching · needs a ' + pct(c.to_buy_price) + ' drop to signal</span>';
+    else if (c.status === "FAIL") status = '<span class="pill bad">Didn’t pass the quality screen</span>';
+    else if (c.status === "NO_DATA") status = '<span class="pill">Not judged: too little history</span>';
+    else if (c.status === "EXCLUDED") status = '<span class="pill">Not screened</span>';
     else status = '<span class="pill">Not valued: ' + esc(c.value_note || "insufficient data") + '</span>';
 
-    var h = '<a class="back" href="#">‹ All companies</a>' +
+    var h = '<a class="back" href="#">‹ Back</a>' +
       '<h1>' + esc(c.name) + '</h1><p class="sub">' + esc(c.ticker) + ' · ' + esc(c.industry || c.sector) + '</p>' + status;
 
-    h += '<h2>Price vs. estimated value</h2><div class="card">' +
+    if (c.status === "EXCLUDED") {
+      h += '<div class="card" style="margin-top:16px"><p>Banks, insurers, real-estate trusts and utilities are left out of this version. ' +
+        'Borrowing is a normal part of how they work, so the debt and cash-flow rules would judge them unfairly.</p></div>' +
+        '<h2>Read more</h2><div class="card links"><a href="https://finance.yahoo.com/quote/' + encodeURIComponent(c.ticker.replace(".", "-")) +
+        '" target="_blank" rel="noopener">Quote and news<span>Yahoo</span></a></div>' + footer();
+      app.innerHTML = h; window.scrollTo(0, 0); return;
+    }
+    var passed = (c.status || "PASS") === "PASS";
+
+    if (passed) h += '<h2>Price vs. estimated value</h2><div class="card">' +
       '<div class="hero"><div><span>Price</span><b>' + px(c.price) + '</b></div>' +
       '<div><span>Buy below</span><b>' + px(c.buy_below) + '</b></div>' +
       '<div><span>Est. value</span><b>' + px(c.value) + '</b></div></div>' + rangeBar(c);
-    if (c.signal) {
+    if (passed && c.signal) {
       if (sized && sized.amount) h += '<div class="amount">Suggested amount: <b>' + whole(sized.amount) + '</b></div>';
       else if (sized && sized.note) h += '<div class="amount">Suggested amount: none (' + esc(sized.note) + ')</div>';
       else h += '<div class="amount">Set your cash reserve under Sizing (home page) to see an amount.</div>';
     }
-    h += '</div>';
+    if (passed) h += '</div>';
 
     var cs = cautions(c);
     if (cs.length) {
@@ -516,12 +583,14 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
       (c.description ? esc(c.description) : 'No summary available. Item 1 (“Business”) of the 10-K below describes it in the company’s own words.') +
       '</p></div>';
 
-    h += '<h2>Why it passed the screen</h2><div class="card"><ul class="checks">' +
-      (c.checks || []).filter(function (k) { return k.passed; }).map(function (k) {
-        var names = { history: "Long track record", returns: "High, steady returns on capital", debt: "Low debt",
-                      fcf: "Reliable free cash flow", earnings: "Consistent earnings" };
-        return '<li>' + esc(names[k.name] || k.name) + '<span>' + esc(k.detail) + '</span></li>';
-      }).join("") + '</ul></div>';
+    h += '<h2>' + (passed ? 'Why it passed the screen' : 'How it did on the quality screen') + '</h2>' +
+      '<div class="card"><ul class="checks">' +
+      (c.checks || []).map(function (k) {
+        var cls = k.passed === false ? ' class="fail"' : k.passed == null ? ' class="na"' : '';
+        return '<li' + cls + '>' + esc(CHECK_NAMES[k.name] || k.name) + '<span>' + esc(k.detail) + '</span></li>';
+      }).join("") + '</ul>' +
+      (passed ? '' : '<p class="muted" style="margin-top:8px">✕ failed · ? not enough data. A company must pass all five to be valued.</p>') +
+      '</div>';
 
     if (c.value) {
       h += '<h2>How the value was estimated</h2><div class="card stack">' +

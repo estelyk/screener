@@ -47,8 +47,12 @@ def company_entry(v: dict, co: dict, profile: dict) -> dict:
         "ret": r.get("roe") if basis == "ROE" else r.get("roic"),
     } for r in co.get("annual", []) if r.get("fiscal_year_end")]
     links = {k: profile.get(k) for k in ("ten_k", "ten_k_date", "earnings", "earnings_date", "all_filings")}
+    if not links["all_filings"] and co.get("cik"):
+        links["all_filings"] = (f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
+                                f"&CIK={co['cik']}&type=10-K&dateb=&owner=include&count=40")
     return {
         "ticker": v["ticker"], "name": v["name"], "sector": v["sector"],
+        "status": co.get("status", "PASS"), "screen_notes": co.get("notes", []),
         "industry": profile.get("industry"), "description": profile.get("description"),
         "price": v.get("price"), "value": v.get("value_per_share"), "buy_below": v.get("buy_below"),
         "discount": v.get("discount"), "to_buy_price": v.get("to_buy_price"),
@@ -62,14 +66,42 @@ def company_entry(v: dict, co: dict, profile: dict) -> dict:
 
 
 def page_data(valuations: list[dict], companies: dict[str, dict],
-              profiles: dict[str, dict], generated: str) -> dict:
+              profiles: dict[str, dict], generated: str,
+              excluded: list[dict] | None = None) -> dict:
+    """Passing companies first (already ranked: signals, then closest to buy), then every
+    other screened company alphabetically, then companies excluded by sector, so that
+    search covers the whole S&P 500."""
+    entries = [company_entry(v, companies.get(v["ticker"], {}), profiles.get(v["ticker"], {}))
+               for v in valuations]
+    valued = {v["ticker"] for v in valuations}
+    for t in sorted(companies):
+        co = companies[t]
+        if t in valued or co.get("status") == "PASS":
+            continue
+        base = {"ticker": t, "name": co.get("name", t), "sector": co.get("sector", "")}
+        entries.append(company_entry(base, co, profiles.get(t, {})))
+    for e in sorted(excluded or [], key=lambda e: e["ticker"]):
+        if e["ticker"] not in companies:
+            entries.append({"ticker": e["ticker"], "name": e["name"], "sector": e["sector"],
+                            "status": "EXCLUDED", "checks": [], "annual": [], "links": {},
+                            "warnings": [], "signal": False, "to_buy_price": None})
     return {
         "generated": generated,
         "settings": {"margin": C.MARGIN_OF_SAFETY, "discount_rate": C.DISCOUNT_RATE,
                      "terminal_growth": C.TERMINAL_GROWTH, "watchlist_size": C.WATCHLIST_SIZE},
-        "companies": [company_entry(v, companies.get(v["ticker"], {}), profiles.get(v["ticker"], {}))
-                      for v in valuations],  # already ranked: signals, then closest to buy
+        "companies": entries,
     }
+
+
+def excluded_companies() -> list[dict]:
+    """S&P 500 members skipped because of their sector (banks, insurers, REITs, utilities)."""
+    path = Path("data/sp500.csv")
+    if not path.exists():
+        return []
+    import csv
+    with open(path, newline="") as f:
+        return [{"ticker": r["ticker"], "name": r["name"], "sector": r["sector"]}
+                for r in csv.DictReader(f) if r.get("sector") in C.EXCLUDED_SECTORS]
 
 
 def render(data: dict, passphrase: str | None = None, label: str = "local") -> str:
@@ -100,7 +132,8 @@ def build(profiles: dict[str, dict] | None = None) -> Path:
     valuations = json.loads((OUT / "valuations.json").read_text())
     companies = {p.stem: json.loads(p.read_text()) for p in (OUT / "companies").glob("*.json")}
     generated = datetime.now().strftime("%b %-d, %Y")
-    return write_site(page_data(valuations, companies, profiles or {}, generated))
+    return write_site(page_data(valuations, companies, profiles or {}, generated,
+                                excluded_companies()))
 
 
 if __name__ == "__main__":
