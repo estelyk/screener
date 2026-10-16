@@ -88,3 +88,50 @@ def test_missing_prices_stop_the_run(tmp_path, monkeypatch):
 def test_workflow_refuses_to_publish_unencrypted_page():
     wf = (ROOT / ".github" / "workflows" / "daily.yml").read_text()
     assert "Page is not encrypted" in wf and "PAGE_PASSPHRASE" in wf
+
+
+# ---------------- holdings review ----------------
+from review import review_reasons  # noqa: E402
+
+
+def test_review_flags_follow_buffett_sell_reasons():
+    fail = {"status": "FAIL", "checks": [{"name": "debt", "passed": False}, {"name": "fcf", "passed": True}]}
+    assert review_reasons(fail) == [{"kind": "quality",
+                                     "text": "No longer passes the quality screen (failed: debt)"}]
+    rich = {"status": "PASS", "price": 160.0, "value": 100.0, "warnings": []}
+    assert [r["kind"] for r in review_reasons(rich)] == ["overvalued"]
+    fine = {"status": "PASS", "price": 140.0, "value": 100.0, "warnings": []}
+    assert review_reasons(fine) == []                       # 40% above value: not flagged
+    cheap = {"status": "PASS", "price": 50.0, "value": 100.0, "warnings": []}
+    assert review_reasons(cheap) == []                      # a price drop alone is never a flag
+    warned = {"status": "PASS", "price": 90.0, "value": 100.0, "warnings": ["revenue down 12% over the last 2 years"]}
+    assert review_reasons(warned)[0]["text"].startswith("Revenue down")
+    assert review_reasons({"status": "EXCLUDED"}) == []
+
+
+def test_holdings_alert_only_for_new_flags_and_never_stores_tickers():
+    s = "secret"
+    cos = [{"ticker": "KO", "review": []},
+           {"ticker": "MCD", "review": [{"kind": "quality", "text": "x"}]}]
+    holdings = alerts.parse_holdings(" ko, mcd ;AAPL")
+    assert holdings == ["KO", "MCD", "AAPL"]
+    new, state = alerts.check_holdings(cos, holdings, set(), s)
+    assert new and not any("MCD" in h for h in state)
+    assert not alerts.check_holdings(cos, holdings, state, s)[0]       # same flag again: quiet
+    cos[0]["review"] = [{"kind": "overvalued", "text": "y"}]
+    assert alerts.check_holdings(cos, holdings, state, s)[0]            # KO newly flagged
+    cos[1]["review"] = []
+    new, state2 = alerts.check_holdings(cos, ["MCD"], state, s)
+    assert not new and state2 == set()                                  # flag cleared
+
+
+def test_page_data_carries_review_flags():
+    v = {"ticker": "AAA", "name": "A", "sector": "X", "price": 200.0, "value_per_share": 100.0,
+         "buy_below": 75.0, "discount": -1.0, "to_buy_price": 0.6, "signal": False, "warnings": []}
+    co = {"status": "PASS", "checks": [], "annual": []}
+    bad = {"name": "B", "sector": "X", "status": "FAIL",
+           "checks": [{"name": "returns", "passed": False}], "annual": []}
+    data = build_site.page_data([v], {"AAA": co, "BBB": bad}, {}, "x")
+    by = {c["ticker"]: c for c in data["companies"]}
+    assert by["AAA"]["review"][0]["kind"] == "overvalued"
+    assert by["BBB"]["review"][0]["kind"] == "quality"

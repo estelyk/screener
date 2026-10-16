@@ -71,3 +71,8 @@ TERMINAL_GROWTH = 0.025   # ...to this long-run rate (about inflation) for all y
 MARGIN_OF_SAFETY = 0.25   # buy signal only when price is at least 25% below value
 WATCHLIST_SIZE = 15       # how many closest-to-buy companies to show
 SUSPICIOUS_DISCOUNT = 0.60  # a discount bigger than this is flagged "check the data"
+
+# ================================ HOLDINGS REVIEW ================================
+# Companies you own get a "review" flag (not a sell order) when the business looks
+# worse or the price runs far ahead of value. See review.py.
+OVERVALUED_ABOVE = 0.50   # flag when price is more than 50% above estimated value

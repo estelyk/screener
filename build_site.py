@@ -85,10 +85,14 @@ def page_data(valuations: list[dict], companies: dict[str, dict],
             entries.append({"ticker": e["ticker"], "name": e["name"], "sector": e["sector"],
                             "status": "EXCLUDED", "checks": [], "annual": [], "links": {},
                             "warnings": [], "signal": False, "to_buy_price": None})
+    from review import review_reasons
+    for e in entries:
+        e["review"] = review_reasons(e)
     return {
         "generated": generated,
         "settings": {"margin": C.MARGIN_OF_SAFETY, "discount_rate": C.DISCOUNT_RATE,
-                     "terminal_growth": C.TERMINAL_GROWTH, "watchlist_size": C.WATCHLIST_SIZE},
+                     "terminal_growth": C.TERMINAL_GROWTH, "watchlist_size": C.WATCHLIST_SIZE,
+                     "overvalued_above": C.OVERVALUED_ABOVE},
         "companies": entries,
     }
 
@@ -132,8 +136,10 @@ def build(profiles: dict[str, dict] | None = None) -> Path:
     valuations = json.loads((OUT / "valuations.json").read_text())
     companies = {p.stem: json.loads(p.read_text()) for p in (OUT / "companies").glob("*.json")}
     generated = datetime.now().strftime("%b %-d, %Y")
-    return write_site(page_data(valuations, companies, profiles or {}, generated,
-                                excluded_companies()))
+    data = page_data(valuations, companies, profiles or {}, generated, excluded_companies())
+    # Unencrypted copy for alerts.py; output/ is never published or uploaded.
+    (OUT / "page_data.json").write_text(json.dumps(data))
+    return write_site(data)
 
 
 if __name__ == "__main__":

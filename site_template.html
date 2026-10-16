@@ -163,6 +163,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
                z-index: 10; background: var(--page); }
 .pill.bad { background: var(--warn-wash); color: var(--text); }
 .st-fail { color: var(--text-2); }
+.st-review { display: inline-block; font-weight: 650; padding: 1px 8px; border-radius: 999px; background: var(--warn-wash); }
+.st-ok { color: var(--good-ink); font-weight: 650; }
+.pill.own { background: var(--surface-2); color: var(--text); margin-left: 6px; }
 p { margin: 0; }
 .charts { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .chart .ct { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
@@ -350,12 +353,20 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
       '<div><label for="sCash">Cash reserve ($)</label><input id="sCash" inputmode="decimal" placeholder="e.g. 10000"></div>' +
       '<div><label for="sPct">Max per position (%)</label><input id="sPct" inputmode="decimal" placeholder="e.g. 20"></div>' +
       '<div><label for="sMax">Max holdings</label><input id="sMax" inputmode="numeric" placeholder="blank = no limit"></div>' +
-      '<div class="wide"><label for="sHeld">Already own (tickers)</label><input id="sHeld" placeholder="e.g. KO, COST" autocapitalize="characters"></div>' +
+      '<div class="wide"><label for="sHeld">Your holdings (tickers)</label><input id="sHeld" placeholder="e.g. KO, COST" autocapitalize="characters"></div>' +
       '</div></details>';
 
     h += '<div class="searchbar"><input type="search" id="q" placeholder="Search any S&amp;P 500 company" ' +
       'aria-label="Search any S&amp;P 500 company by ticker or name" autocomplete="off" autocorrect="off" spellcheck="false"></div>' +
       '<div id="results" hidden></div><div id="homeBody">';
+
+    var held = (s && s.holdings) || [];
+    if (held.length) {
+      var flagged = held.filter(function (t) { return holdingReasons(t).length; }).length;
+      h += '<h2>Your holdings</h2><p class="muted" style="margin:-4px 0 10px">' +
+        (flagged ? flagged + ' of ' + held.length + ' need' + (flagged === 1 ? 's' : '') + ' a review. ' : 'No flags today. ') +
+        'A flag means “take a look”, not “sell”.</p><div class="list">' + held.map(holdingRow).join('') + '</div>';
+    }
 
     h += '<div class="summary">' +
       '<div class="stat"><b>' + signals.length + '</b><span>buy signal' + (signals.length === 1 ? "" : "s") + '</span></div>' +
@@ -475,6 +486,25 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
       : '<div class="card empty" style="margin-top:8px">No S&amp;P 500 company matches “' + esc(lastQuery.trim()) + '”. Try a ticker like KO or a name like Coca.</div>';
   }
 
+  // Review flags come precomputed from review.py (same rules as the email alert).
+  function holdingReasons(t) {
+    var c = BY[t];
+    if (!c) return [{ kind: "unknown", text: "Not in the S&P 500 list, so the screener can't check it" }];
+    if (c.status === "EXCLUDED") return [{ kind: "unscreened", text: "Banks, insurers, REITs and utilities aren't screened, so it can't be checked" }];
+    return c.review || [];
+  }
+
+  function holdingRow(t) {
+    var c = BY[t], r = holdingReasons(t);
+    var right = r.length
+      ? '<div><span class="st-review">Review</span></div><div>' + esc(r[0].text) + (r.length > 1 ? ' +' + (r.length - 1) + ' more' : '') + '</div>'
+      : '<div class="st-ok">✓ No flags</div><div>' + (c && c.price ? px(c.price) : '') + '</div>';
+    var inner = '<div class="l"><div>' + esc(t) + '</div><div class="nm">' + esc(c ? c.name : "Unknown ticker") + '</div></div>' +
+      '<div class="r" style="white-space:normal;max-width:60%">' + right + '</div>';
+    return c ? '<a class="li" href="#/' + encodeURIComponent(t) + '">' + inner + '<span class="chev" aria-hidden="true">›</span></a>'
+             : '<div class="li">' + inner + '</div>';
+  }
+
   function passing() { return DATA.companies.filter(function (c) { return (c.status || "PASS") === "PASS"; }); }
 
   var CHECK_NAMES = { history: "Long track record", returns: "High, steady returns on capital", debt: "Low debt",
@@ -553,6 +583,16 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
 
     var h = '<a class="back" href="#">‹ Back</a>' +
       '<h1>' + esc(c.name) + '</h1><p class="sub">' + esc(c.ticker) + ' · ' + esc(c.industry || c.sector) + '</p>' + status;
+    var owned = s && (s.holdings || []).indexOf(c.ticker) >= 0;
+    if (owned) {
+      h += '<span class="pill own">You own this</span>';
+      var rr = holdingReasons(c.ticker);
+      h += '<h2>Your position</h2>' + (rr.length
+        ? rr.map(function (x) { return '<div class="note"><b></b>' + esc(x.text) + '</div>'; }).join('') +
+          '<p class="muted" style="margin-top:8px">Ask whether the reason you bought still holds. A falling price alone isn’t a reason to sell, ' +
+          'and selling within a year of buying is taxed at your regular income rate.</p>'
+        : '<div class="card"><p><span class="st-ok">✓ No review flags.</span> The business still passes the screen and the price isn’t far above its estimated value.</p></div>');
+    }
 
     if (c.status === "EXCLUDED") {
       h += '<div class="card" style="margin-top:16px"><p>Banks, insurers, real-estate trusts and utilities are left out of this version. ' +

@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 40
     outputs:
       new_signal: ${{ steps.alert.outputs.new_signal }}
+      review_needed: ${{ steps.alert.outputs.review_needed }}
     env:
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       PAGE_PASSPHRASE: ${{ secrets.PAGE_PASSPHRASE }}
@@ -63,8 +64,10 @@ jobs:
       - name: Phase 2 and 3 - valuation and page
         run: python run_phase2.py
 
-      - name: Check for new buy signals
+      - name: Check for new buy signals and holding reviews
         id: alert
+        env:
+          HOLDINGS: ${{ secrets.HOLDINGS }}   # optional, e.g. "KO, COST"
         run: python alerts.py
 
       - name: Save data for next run
@@ -98,14 +101,23 @@ jobs:
 
   alert:
     needs: [screen, deploy]
-    if: needs.screen.outputs.new_signal == 'true'
+    if: needs.screen.outputs.new_signal == 'true' || needs.screen.outputs.review_needed == 'true'
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
-      - name: Open an alert issue (GitHub emails you; no ticker is included)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+      # GitHub emails you about each issue. Neither one ever names the stock.
+      - name: Alert - new buy signal
+        if: needs.screen.outputs.new_signal == 'true'
         run: |
           gh issue create \
             --title "New buy signal ($(date -u +%Y-%m-%d))" \
             --body "@${{ github.repository_owner }} A new buy signal appeared. Open your Value Screener page to see it."
+
+      - name: Alert - holding needs a review
+        if: needs.screen.outputs.review_needed == 'true'
+        run: |
+          gh issue create \
+            --title "Holding needs a review ($(date -u +%Y-%m-%d))" \
+            --body "@${{ github.repository_owner }} One of your holdings has a new review flag. Open your Value Screener page and check Your holdings. A flag means take a look, not sell."

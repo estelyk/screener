@@ -40,6 +40,15 @@ On github.com, open the repository → **Settings** → **Secrets and variables*
 Secrets are hidden from everyone, including in the logs. Never put the
 passphrase anywhere else in the repository.
 
+Optional third secret, for holding-review emails:
+
+| Name | Value |
+|---|---|
+| `HOLDINGS` | the tickers you own, comma-separated, e.g. `KO, COST` |
+
+Update it whenever you buy or sell (open the secret → **Update**). Also enter the
+same tickers in the app under **Sizing → Your holdings** so the flags show there.
+
 ## 4. Turn on GitHub Pages
 Repository → **Settings** → **Pages** → under *Build and deployment*, Source:
 **GitHub Actions**.
@@ -60,6 +69,9 @@ runs are faster. A green check means it worked.
 - **Weekdays ~5–6pm ET:** GitHub runs the screener and updates the page.
 - **New buy signal:** GitHub opens an issue titled "New buy signal" and emails you.
   It never names the stock; open your page to see it.
+- **A holding gets a new review flag** (fails the quality screen, a "cheap for a
+  reason" warning, or price more than 50% above estimated value): GitHub opens a
+  "Holding needs a review" issue and emails you, without naming the stock.
 - **A run fails** (e.g. Yahoo blocks prices): GitHub emails you, and yesterday's
   page stays up. Occasional failures are normal; repeated ones, tell Claude.
 - **Inactivity:** GitHub pauses schedules after 60 days without repository
