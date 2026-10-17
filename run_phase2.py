@@ -21,7 +21,7 @@ from valuation import price_check, value_company
 
 OUT = Path("output")
 FIELDS = ["ticker", "name", "sector", "signal", "price", "value_per_share", "value_low",
-          "value_high", "terminal_share", "buy_below",
+          "value_high", "value_no_recovery", "last_fcf", "zscore", "terminal_share", "buy_below",
           "discount", "to_buy_price", "growth", "normalized_fcf", "net_debt", "shares",
           "verify", "suspicious", "warnings", "value_note"]
 
@@ -58,6 +58,14 @@ def build(companies: list[dict], prices: dict[str, float],
         price = prices.get(c["ticker"])
         if price is None and not v["value_note"].startswith("rerun"):
             v["value_note"] = (v["value_note"] + "; " if v["value_note"] else "") + "no price"
+        # Altman Z needs the stock market value, so it is added here, once the price is known.
+        if price is not None:
+            from riskscores import z_warning, zscore
+            shares = v.get("shares") or ((latest.get("diluted_shares") or 0) * factor)
+            v["zscore"] = zscore(c["annual"], price * shares if shares else None)
+            zw = z_warning(v["zscore"], c["annual"])
+            if zw:
+                v["warnings"] = v["warnings"] + [zw]
         verify = "; ".join(n for n in c.get("notes", []) if n.startswith("VERIFY"))
         results.append({"ticker": c["ticker"], "name": c["name"], "sector": c["sector"],
                         "price": price, "verify": verify, **v,

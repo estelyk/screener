@@ -24,6 +24,7 @@ from __future__ import annotations
 from statistics import mean, median
 
 import config as C
+from riskscores import f_warning, fscore
 
 
 def _vals(rows, key):
@@ -140,6 +141,21 @@ def warnings(rows: list[dict]) -> list[str]:
         if C.DILUTION_WARN < ratio < 1.8:
             out.append(f"share count up {ratio - 1:.0%} over 5 years (dilution)")
 
+    # Recovery assumed: the normal (median-margin) cash flow is well above what the
+    # company actually produced last year. Fine for a one-off bad year; risky if the
+    # business is getting worse, so it is shown, not hidden.
+    f0, last = normalized_fcf(rows), (rows[-1].get("owner_fcf") if rows else None)
+    if f0 and f0 > 0 and last is not None:
+        if last <= 0:
+            out.append("last year's owner cash flow was negative; the value assumes a recovery")
+        elif f0 > (1 + C.RECOVERY_GAP_WARN) * last:
+            out.append(f"value assumes cash flow recovers: it uses {f0 / last - 1:.0%} more than "
+                       "last year's actual (see the no-recovery value)")
+
+    fw = f_warning(fscore(rows))
+    if fw:
+        out.append(fw)
+
     # Earnings not backed by cash: operating cash flow well below reported profit.
     recent5 = [(r["operating_cash_flow"], r["net_income"]) for r in rows[-5:]
                if r.get("operating_cash_flow") is not None and r.get("net_income") is not None]
@@ -155,6 +171,8 @@ def value_company(rows: list[dict], split_factor: float = 1.0) -> dict:
     """Intrinsic value per share, or a reason it can't be estimated.
     split_factor: shares multiply by this for splits since the last annual report."""
     out = {"value_per_share": None, "value_low": None, "value_high": None, "long_run_growth": None,
+           "value_no_recovery": None, "last_fcf": None, "last_growth": None,
+           "fscore": fscore(rows), "zscore": None,
            "terminal_share": None, "growth": None, "normalized_fcf": None,
            "net_debt": None, "shares": None, "value_note": "", "warnings": warnings(rows)}
     fcf0 = normalized_fcf(rows)
@@ -187,6 +205,16 @@ def value_company(rows: list[dict], split_factor: float = 1.0) -> dict:
     r_hi, tg_hi = C.SCENARIOS["bull"]
     out["value_low"] = dcf(fcf0, growth, r_lo, tg_lo, trend) / shares
     out["value_high"] = dcf(fcf0, growth, r_hi, tg_hi, trend) / shares
+    # "No recovery" check (shown only, never used for the signal): start from last
+    # year's actual cash flow and grow at no more than last year's sales growth.
+    last = latest.get("owner_fcf")
+    out["last_fcf"] = last
+    rev = [r.get("revenue") for r in rows[-2:]]
+    g1 = rev[1] / rev[0] - 1 if len(rev) == 2 and rev[0] and rev[1] else None
+    out["last_growth"] = g1
+    if last is not None and last > 0 and last < fcf0:
+        g_low = max(C.MIN_GROWTH, min(growth, g1 if g1 is not None else growth, C.MAX_GROWTH))
+        out["value_no_recovery"] = dcf(last, g_low, trend=trend) / shares
     if split_factor != 1.0:
         out["value_note"] += f"; shares adjusted for a {split_factor:g}-for-1 split"
     return out

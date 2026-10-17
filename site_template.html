@@ -619,7 +619,9 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     if (passed) h += '<h2>Price vs. estimated value</h2><div class="card">' +
       '<div class="hero"><div><span>Price</span><b>' + px(c.price) + '</b></div>' +
       '<div><span>Buy below</span><b>' + px(c.buy_below) + '</b></div>' +
-      '<div><span>Est. value</span><b>' + px(c.value) + '</b></div></div>' + rangeBar(c);
+      '<div><span>Est. value</span><b>' + px(c.value) + '</b></div></div>' + rangeBar(c) +
+      (c.value_no_recovery ? '<p class="muted" style="margin-top:10px">If cash flow doesn’t recover: <b>' + px(c.value_no_recovery) +
+        '</b> per share. See “How the value was estimated”.</p>' : '');
     if (passed && c.signal) {
       if (sized && sized.amount) h += '<div class="amount">Suggested amount: <b>' + whole(sized.amount) + '</b></div>';
       else if (sized && sized.note) h += '<div class="amount">Suggested amount: none (' + esc(sized.note) + ')</div>';
@@ -657,7 +659,31 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
           '(12% return demanded, 2% long-run growth) to optimistic (8%, 3%).</p>' : '') +
         (c.terminal_share ? '<p class="muted">' + pct(c.terminal_share) + ' of the estimate comes from cash beyond year 10, ' +
           'so it is sensitive to the long-run assumptions.</p>' : '') +
+        (c.value_no_recovery ? '<p><b>If cash flow doesn’t recover: ' + px(c.value_no_recovery) + '</b> per share. ' +
+          'Last year it actually produced ' + big(c.last_fcf) + ', less than the ' + big(c.normalized_fcf) + ' used above. ' +
+          'This version starts from last year’s ' + big(c.last_fcf) + ' and grows no faster than last year’s sales (' +
+          pct(c.last_growth, 1) + '). It isn’t used for the buy signal; the gap between the two shows how much of the value is a bet on a comeback.</p>' : '') +
         '<p class="muted">Buy below = base value minus the ' + pct(DATA.settings.margin) + ' margin of safety.</p></div>';
+    }
+
+    if (passed && (c.fscore || c.zscore != null)) {
+      h += '<h2>Is the business getting worse?</h2><div class="card stack">';
+      if (c.fscore) {
+        var f = c.fscore, fv = f.score <= 3 ? 'weakening' : f.score >= 7 ? 'strong and improving' : 'mixed';
+        h += '<p><b>Piotroski F-score: ' + f.score + ' of ' + f.out_of + '</b> (' + fv + '). One point for each sign of health, ' +
+          'comparing the latest year with the year before. 8–9 is strong; 0–3 means weakening on most measures.</p>' +
+          '<div>' + f.checks.map(function (k) {
+            var mark = k[1] === true ? '<span class="st-ok">✓</span>' : k[1] === false ? '<span class="st-fail">✗</span>' : '<span class="muted">–</span>';
+            return '<div class="muted" style="padding:2px 0">' + mark + ' ' + esc(k[0]) + (k[1] == null ? ' (no data)' : '') + '</div>';
+          }).join('') + '</div>';
+      }
+      if (c.zscore != null) {
+        var z = c.zscore, zz = z < 1.81 ? 'distress zone' : z < 2.99 ? 'grey zone' : 'safe zone';
+        h += '<p><b>Altman Z-score: ' + z.toFixed(1) + '</b> (' + zz + '). A classic bankruptcy-risk score: above 3 is safe, ' +
+          '1.8–3 is grey, below 1.8 is distress. It often reads low for retailers, software and companies that have bought back a lot of stock, ' +
+          'so treat it as a prompt to look at debt and cash, not a verdict.</p>';
+      }
+      h += '<p class="muted">Both scores are shown for information. They don’t change the estimated value or the buy signal.</p></div>';
     }
 
     h += '<h2>Ten years</h2><div class="charts" id="charts"></div>';

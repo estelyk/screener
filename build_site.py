@@ -56,6 +56,8 @@ def company_entry(v: dict, co: dict, profile: dict) -> dict:
         "industry": profile.get("industry"), "description": profile.get("description"),
         "price": v.get("price"), "value": v.get("value_per_share"), "buy_below": v.get("buy_below"),
         "value_low": v.get("value_low"), "value_high": v.get("value_high"),
+        "value_no_recovery": v.get("value_no_recovery"), "last_fcf": v.get("last_fcf"),
+        "last_growth": v.get("last_growth"), "fscore": v.get("fscore"), "zscore": v.get("zscore"),
         "terminal_share": v.get("terminal_share"), "long_run_growth": v.get("long_run_growth"),
         "discount": v.get("discount"), "to_buy_price": v.get("to_buy_price"),
         "signal": bool(v.get("signal")), "suspicious": bool(v.get("suspicious")),

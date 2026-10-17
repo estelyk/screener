@@ -65,6 +65,8 @@ def record(ledger: dict, valuations: list[dict], day: str, model: str, code: str
             "start": day, "last_seen": day, "active": True, "ended": None,
             "price": v.get("price"), "value": v.get("value_per_share"),
             "value_low": v.get("value_low"), "value_high": v.get("value_high"),
+            "value_no_recovery": v.get("value_no_recovery"),
+            "fscore": (v.get("fscore") or {}).get("score"), "zscore": v.get("zscore"),
             "buy_below": v.get("buy_below"), "discount": v.get("discount"),
             "terminal_share": v.get("terminal_share"), "growth": v.get("growth"),
             "warnings": v.get("warnings") or [], "verify": bool(v.get("verify")),

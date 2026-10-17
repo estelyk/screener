@@ -83,6 +83,7 @@ WATCHLIST_SIZE = 15       # how many closest-to-buy companies to show
 SUSPICIOUS_DISCOUNT = 0.60  # a discount bigger than this is flagged "check the data"
 DILUTION_WARN = 1.10      # warn if the share count grew more than 10% over 5 years
 CASH_BACKING_MIN = 0.80   # warn if 5-yr operating cash flow < 80% of 5-yr reported earnings
+RECOVERY_GAP_WARN = 0.30  # warn if the normal cash flow used is >30% above last year's actual
 
 # ================================ HOLDINGS REVIEW ================================
 # Companies you own get a "review" flag (not a sell order) when the business looks

@@ -235,3 +235,31 @@ def test_earnings_not_backed_by_cash_warning():
     for x in r:
         x["operating_cash_flow"] = 120
     assert not any("backed by cash" in w for w in value_company(r)["warnings"])
+
+
+# ---------------- recovery check (display only) ----------------
+def lulu_like():
+    """Lululemon-style: strong margins, a weak latest year, slowing sales."""
+    revs = [3.3, 4.0, 4.4, 6.3, 8.1, 9.6, 10.588, 11.103]
+    margins = [0.15, 0.15, 0.1479, 0.0308, 0.1612, 0.1411, 0.15, 0.0774]
+    return [{"revenue": r * 1e9, "owner_fcf": r * m * 1e9, "diluted_shares": 119.1e6}
+            for r, m in zip(revs, margins)] + []
+
+
+def test_recovery_warning_and_no_recovery_value():
+    r = lulu_like()
+    v = value_company(r)
+    assert any("assumes cash flow recovers" in w for w in v["warnings"])
+    last = r[-1]["owner_fcf"]
+    g1 = r[-1]["revenue"] / r[-2]["revenue"] - 1                    # ~4.9%
+    from valuation import long_run_trend
+    expected = dcf(last, min(v["growth"], g1), trend=long_run_trend(r)) / 119.1e6
+    assert v["value_no_recovery"] == pytest.approx(expected)
+    assert v["value_no_recovery"] < 0.6 * v["value_per_share"]
+    assert price_check(v["value_per_share"], 100)["signal"]          # signal still uses the base value
+
+
+def test_no_recovery_value_only_when_last_year_was_weaker():
+    v = value_company(rows())                                        # steady grower
+    assert v["value_no_recovery"] is None
+    assert not any("recovers" in w for w in v["warnings"])

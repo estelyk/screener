@@ -92,6 +92,9 @@ TAGS: dict[str, list[str]] = {
         "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
     ],
     "current_assets": ["AssetsCurrent"],
+    "total_assets": ["Assets"],
+    "total_liabilities": ["Liabilities"],
+    "retained_earnings": ["RetainedEarningsAccumulatedDeficit"],
     "current_liabilities": ["LiabilitiesCurrent"],
     "net_ppe": [
         "PropertyPlantAndEquipmentNet",
@@ -104,7 +107,8 @@ TAGS["diluted_shares"] = [
 ]
 UNITS = {"diluted_shares": "shares"}  # everything else is USD
 INSTANT_METRICS = {"equity", "long_term_debt", "cash", "current_assets",
-                   "current_liabilities", "net_ppe"}  # balance-sheet snapshots
+                   "current_liabilities", "net_ppe", "total_assets", "total_liabilities",
+                   "retained_earnings"}  # balance-sheet snapshots
 ALL_TAGS = sorted({t for tags in TAGS.values() for t in tags})
 
 
@@ -239,6 +243,10 @@ def annual_table(facts: dict, years: int = C.YEARS) -> tuple[list[dict], list[st
         ocf, capex = r["operating_cash_flow"], r["capex"]
         r["fcf"] = ocf - capex if ocf is not None and capex is not None else None
         r["owner_fcf"] = (r["fcf"] - (r["sbc"] or 0.0)) if r["fcf"] is not None else None
+
+        # Many companies file total assets and equity but no "Liabilities" line.
+        if r["total_liabilities"] is None and r["total_assets"] is not None and r["equity"] is not None:
+            r["total_liabilities"] = r["total_assets"] - r["equity"]
 
         ni, eq = r["net_income"], r["equity"]
         r["roe"] = ni / eq if ni is not None and eq is not None and eq > 0 else None
