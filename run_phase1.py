@@ -68,6 +68,11 @@ def main() -> None:
             if facts is None:
                 raise RuntimeError("no XBRL company facts on EDGAR")
             rows, notes = annual_table(facts)
+            from quarterly import quarterly_update
+            try:
+                q = quarterly_update(facts, rows)
+            except Exception:          # quarterly data is a bonus; never fail a company on it
+                q = None
             s = screen_company(rows)
             latest = rows[-1] if rows else {}
             res = {**base, **{k: v for k, v in s.items() if k != "checks"},
@@ -78,7 +83,7 @@ def main() -> None:
                    "notes": "; ".join(notes)}
             (OUT / "companies" / f"{co.ticker}.json").write_text(json.dumps(
                 {**base, "cik": int(co.cik), "status": s["status"], "checks": s["checks"],
-                 "notes": notes, "annual": rows}, indent=2))
+                 "notes": notes, "annual": rows, "quarterly": q}, indent=2))
         except Exception as e:  # keep going; one bad company shouldn't stop the run
             res = {**base, "status": "ERROR", "notes": f"{type(e).__name__}: {e}"}
         results.append(res)

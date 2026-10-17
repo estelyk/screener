@@ -74,10 +74,29 @@ def main() -> None:
         print(f"  Value of years 11+ today:    {m(far)}")
         print(f"  Terminal value share:        {p(far / (near + far))}")
 
+    from quarterly import quarterly_update, warnings as q_warnings
+    q = quarterly_update(facts, rows)
+    if q:
+        print(f"\nSINCE THE LAST ANNUAL REPORT: {q['months']} months to {q['through']} vs a year earlier")
+        for k, label in [("revenue", "sales"), ("net_income", "profit"),
+                         ("operating_cash_flow", "cash from operations"), ("capex", "stores & equipment")]:
+            x = q["items"].get(k)
+            if x:
+                print(f"  {label:<22} {m(x['cur']):>9}  vs {m(x['prev']):>9}  {p(x['change'])}")
+        o = q.get("owner_fcf")
+        if o:
+            print(f"  {'owner cash flow':<22} {m(o['cur']):>9}  vs {m(o['prev']):>9}  {p(o['change'])}")
+            print(f"  owner cash flow, last 12 months: {m(o.get('last12'))}")
+        for w in q_warnings(q):
+            print(f"  warning: {w}")
+    else:
+        print("\n(No quarterly report since the last annual report.)")
+
     try:
         from prices import market_data
         prices, splits = market_data([t])
-        v = build([{"ticker": t, "name": co.name, "sector": co.sector, "notes": notes, "annual": rows}],
+        v = build([{"ticker": t, "name": co.name, "sector": co.sector, "notes": notes, "annual": rows,
+                    "quarterly": q}],
                   prices, splits)[0]
         print(f"\n  Shares used: {(v.get('shares') or 0) / 1e6:,.1f}M   {v.get('value_note')}")
         d = lambda x: "—" if x is None else f"${x:,.2f}"

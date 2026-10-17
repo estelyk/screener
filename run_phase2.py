@@ -66,6 +66,11 @@ def build(companies: list[dict], prices: dict[str, float],
             zw = z_warning(v["zscore"], c["annual"])
             if zw:
                 v["warnings"] = v["warnings"] + [zw]
+        # Quarterly early warning (since the last annual report): warnings only.
+        from quarterly import warnings as q_warnings
+        qw = q_warnings(c.get("quarterly"))
+        if qw:
+            v["warnings"] = v["warnings"] + qw
         verify = "; ".join(n for n in c.get("notes", []) if n.startswith("VERIFY"))
         results.append({"ticker": c["ticker"], "name": c["name"], "sector": c["sector"],
                         "price": price, "verify": verify, **v,
