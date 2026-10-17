@@ -88,7 +88,8 @@ def test_encrypted_record_round_trips_and_never_contains_tickers(in_tmp):
     tracker.record(led, [sig("KO")], "2026-10-16", "v1")
     tracker.save(led, "pass phrase")
     for p in (in_tmp / "state" / "ledger.enc", in_tmp / "site" / "ledger.enc"):
-        assert "KO" not in p.read_text()
+        blob = json.loads(p.read_text())
+        assert blob["locked"] == 1 and '"KO"' not in p.read_text() and "ticker" not in p.read_text()
     got = tracker.load("pass phrase", url="https://x/ledger.enc", fetch=lambda u: (None, True))
     assert got["entries"][0]["ticker"] == "KO"
 
