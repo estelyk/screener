@@ -636,7 +636,7 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
       h += '<h2>How the value was estimated</h2><div class="card stack">' +
         '<p>Starts from <b>' + big(c.normalized_fcf) + '</b> a year of owner free cash flow: its typical cash-flow margin over the last 5 years × its latest sales, so one-off years don’t skew it.</p>' +
         '<p>Assumes <b>' + pct(c.growth, 1) + '</b> growth for 5 years (' + esc(c.value_note) + '), then ' +
-        (c.growth >= DATA.settings.terminal_growth ? 'fading to ' + pct(DATA.settings.terminal_growth, 1) : c.growth < 0 ? 'easing to 0%' : 'holding at ' + pct(c.growth, 1)) +
+        'moving to ' + pct(c.long_run_growth != null ? c.long_run_growth : DATA.settings.terminal_growth, 1) + ' a year (its 10-year sales trend, at most ' + pct(DATA.settings.terminal_growth, 1) + ')' +
         ' forever, all discounted at ' + pct(DATA.settings.discount_rate) + ' a year.</p>' +
         '<p>Divides by ' + (c.shares / 1e6).toFixed(0) + 'M shares. Debt (' + big(c.net_debt) + ' net) isn’t subtracted again: ' +
         'interest payments already reduce the cash flow above.</p>' +

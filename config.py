@@ -81,6 +81,8 @@ SCENARIOS = {"bear": (0.12, 0.020), "base": (0.10, 0.025), "bull": (0.08, 0.030)
 MARGIN_OF_SAFETY = 0.25   # buy signal only when price is at least 25% below value
 WATCHLIST_SIZE = 15       # how many closest-to-buy companies to show
 SUSPICIOUS_DISCOUNT = 0.60  # a discount bigger than this is flagged "check the data"
+DILUTION_WARN = 1.10      # warn if the share count grew more than 10% over 5 years
+CASH_BACKING_MIN = 0.80   # warn if 5-yr operating cash flow < 80% of 5-yr reported earnings
 
 # ================================ HOLDINGS REVIEW ================================
 # Companies you own get a "review" flag (not a sell order) when the business looks

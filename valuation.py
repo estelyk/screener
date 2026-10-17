@@ -9,8 +9,9 @@ Steps for one company:
    owner-FCF growth, kept between MIN_GROWTH and MAX_GROWTH. The recent rate stops
    a slowing business from being valued on its glory years.
 3. Project 10 years: growth for 5 years, fading to the long-run rate by year 10,
-   then a terminal value for everything after. A business growing slower than the
-   long-run rate is never faded UP to it (and a shrinking one ends at 0%).
+   then a terminal value for everything after. The long-run rate is capped by the
+   company's own 10-year revenue trend (floored at 0%), so a temporary slump doesn't
+   lower it forever, but a business in long-term decline isn't faded up to 2.5%.
 4. Discount every year back to today at the discount rate and add it up.
 5. Divide by diluted shares. Debt is NOT subtracted: owner cash flow is already
    after interest, so it is cash to shareholders (subtracting debt would count it
@@ -48,6 +49,14 @@ def normalized_fcf(rows: list[dict]) -> float | None:
     return median(fcf) if len(fcf) >= C.MIN_MARGIN_YEARS else None
 
 
+def long_run_trend(rows: list[dict]) -> float | None:
+    """Revenue growth per year across the whole history (usually 10 years)."""
+    rev = [(i, r["revenue"]) for i, r in enumerate(rows) if r.get("revenue")]
+    if len(rev) < 2:
+        return None
+    return _cagr(rev[0][1], rev[-1][1], rev[-1][0] - rev[0][0])
+
+
 def estimate_growth(rows: list[dict]) -> tuple[float, str]:
     """Return (growth rate, explanation)."""
     candidates = {}
@@ -81,11 +90,12 @@ def estimate_growth(rows: list[dict]) -> tuple[float, str]:
 
 
 def dcf_parts(fcf0: float, growth: float, r: float | None = None,
-              tg: float | None = None) -> tuple[float, float]:
-    """(PV of years 1-10, PV of everything after) for cash flow starting at fcf0."""
+              tg: float | None = None, trend: float | None = None) -> tuple[float, float]:
+    """(PV of years 1-10, PV of everything after) for cash flow starting at fcf0.
+    trend: long-run revenue growth; caps the terminal rate (defaults to `growth`)."""
     r = C.DISCOUNT_RATE if r is None else r
     tg = C.TERMINAL_GROWTH if tg is None else tg
-    tg = min(tg, max(growth, 0.0))   # slow or shrinking businesses don't fade upward
+    tg = min(tg, max(growth if trend is None else trend, 0.0))
     hi, n = C.HIGH_GROWTH_YEARS, C.PROJECTION_YEARS
     pv, f = 0.0, fcf0
     for t in range(1, n + 1):
@@ -96,9 +106,10 @@ def dcf_parts(fcf0: float, growth: float, r: float | None = None,
     return pv, terminal / (1 + r) ** n
 
 
-def dcf(fcf0: float, growth: float, r: float | None = None, tg: float | None = None) -> float:
+def dcf(fcf0: float, growth: float, r: float | None = None, tg: float | None = None,
+        trend: float | None = None) -> float:
     """Present value of all future cash flows, starting from fcf0 per year."""
-    return sum(dcf_parts(fcf0, growth, r, tg))
+    return sum(dcf_parts(fcf0, growth, r, tg, trend))
 
 
 def warnings(rows: list[dict]) -> list[str]:
@@ -120,13 +131,30 @@ def warnings(rows: list[dict]) -> list[str]:
         if earlier > 0 and recent > 1.5 * earlier and recent - earlier > 0.05:
             out.append(f"cash flow margin {recent:.0%} recently vs {earlier:.0%} before "
                        "(could be a cyclical peak)")
+
+    # Dilution: share count growing more than ~2% a year over 5 years. A jump of 1.8x
+    # or more is almost always an unadjusted stock split in old filings, so skip it.
+    sh = _vals(rows, "diluted_shares")
+    if len(sh) >= 6 and sh[-6] > 0:
+        ratio = sh[-1] / sh[-6]
+        if C.DILUTION_WARN < ratio < 1.8:
+            out.append(f"share count up {ratio - 1:.0%} over 5 years (dilution)")
+
+    # Earnings not backed by cash: operating cash flow well below reported profit.
+    recent5 = [(r["operating_cash_flow"], r["net_income"]) for r in rows[-5:]
+               if r.get("operating_cash_flow") is not None and r.get("net_income") is not None]
+    if len(recent5) >= 4:
+        ocf, ni = sum(o for o, _ in recent5), sum(n for _, n in recent5)
+        if ni > 0 and ocf < C.CASH_BACKING_MIN * ni:
+            out.append(f"reported earnings not fully backed by cash "
+                       f"(operating cash flow {ocf / ni:.0%} of earnings over 5 years)")
     return out
 
 
 def value_company(rows: list[dict], split_factor: float = 1.0) -> dict:
     """Intrinsic value per share, or a reason it can't be estimated.
     split_factor: shares multiply by this for splits since the last annual report."""
-    out = {"value_per_share": None, "value_low": None, "value_high": None,
+    out = {"value_per_share": None, "value_low": None, "value_high": None, "long_run_growth": None,
            "terminal_share": None, "growth": None, "normalized_fcf": None,
            "net_debt": None, "shares": None, "value_note": "", "warnings": warnings(rows)}
     fcf0 = normalized_fcf(rows)
@@ -149,14 +177,16 @@ def value_company(rows: list[dict], split_factor: float = 1.0) -> dict:
     debt = latest.get("long_term_debt") or 0.0
     cash = latest.get("cash") or 0.0
     net_debt = debt - cash   # shown for information only; not subtracted (see above)
-    near, far = dcf_parts(fcf0, growth)
+    trend = long_run_trend(rows)
+    out["long_run_growth"] = min(C.TERMINAL_GROWTH, max(trend if trend is not None else growth, 0.0))
+    near, far = dcf_parts(fcf0, growth, trend=trend)
     out.update(growth=growth, net_debt=net_debt, shares=shares, value_note=why)
     out["value_per_share"] = (near + far) / shares
     out["terminal_share"] = far / (near + far)
     r_lo, tg_lo = C.SCENARIOS["bear"]
     r_hi, tg_hi = C.SCENARIOS["bull"]
-    out["value_low"] = dcf(fcf0, growth, r_lo, tg_lo) / shares
-    out["value_high"] = dcf(fcf0, growth, r_hi, tg_hi) / shares
+    out["value_low"] = dcf(fcf0, growth, r_lo, tg_lo, trend) / shares
+    out["value_high"] = dcf(fcf0, growth, r_hi, tg_hi, trend) / shares
     if split_factor != 1.0:
         out["value_note"] += f"; shares adjusted for a {split_factor:g}-for-1 split"
     return out

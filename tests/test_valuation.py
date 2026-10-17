@@ -196,3 +196,42 @@ def test_falls_back_to_median_cash_flow_without_revenue():
 def test_negative_typical_margin_gives_no_value():
     r = rows(fcf=-5)
     assert value_company(r)["value_per_share"] is None
+
+
+# ---------------- terminal growth from the long-run trend; new warnings ----------------
+from valuation import long_run_trend  # noqa: E402
+
+
+def test_temporary_slump_does_not_lower_long_run_growth_forever():
+    r = rows(growth=0.06)                        # 6% a year for a decade...
+    for x in r[-3:]:
+        x["revenue"] = r[-4]["revenue"]          # ...then a flat 3-year patch
+    v = value_company(r)
+    assert v["growth"] == 0.0                    # near-term growth reflects the slump
+    assert v["long_run_growth"] == C.TERMINAL_GROWTH   # but the long run uses the 10-yr trend
+
+
+def test_long_term_decline_is_not_faded_up():
+    r = rows(growth=0.01)
+    assert long_run_trend(r) == pytest.approx(0.01)
+    assert value_company(r)["long_run_growth"] == pytest.approx(0.01)
+    assert value_company(rows(growth=-0.02))["long_run_growth"] == 0.0
+
+
+def test_dilution_warning_but_not_for_stock_splits():
+    r = rows()
+    for i, x in enumerate(r):
+        x["diluted_shares"] = 100 * 1.03 ** i       # +3% a year
+    assert any("dilution" in w for w in value_company(r)["warnings"])
+    r[-1]["diluted_shares"] = r[-6]["diluted_shares"] * 10   # looks like a 10-for-1 split
+    assert not any("dilution" in w for w in value_company(r)["warnings"])
+
+
+def test_earnings_not_backed_by_cash_warning():
+    r = rows()
+    for x in r:
+        x["net_income"], x["operating_cash_flow"] = 100, 60
+    assert any("not fully backed by cash" in w for w in value_company(r)["warnings"])
+    for x in r:
+        x["operating_cash_flow"] = 120
+    assert not any("backed by cash" in w for w in value_company(r)["warnings"])
