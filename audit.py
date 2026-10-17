@@ -88,11 +88,14 @@ def main() -> None:
               f"   signal: {v['signal']}")
         cd = v.get("cash_drop")
         if cd:
-            print(f"  Why cash fell: {m(cd['before'])} (avg of the 2 years before) -> {m(cd['last'])}")
-            for k, label in [("profit", "profit"), ("timing", "inventory/bills/timing"),
-                             ("spending", "stores & equipment"), ("stock_pay", "stock pay")]:
-                print(f"     {label:<24} {'+' if cd['parts'][k] >= 0 else '-'}{m(abs(cd['parts'][k]))}")
-            print(f"     mainly: {cd['cause']} ({cd['meaning']})")
+            sg = lambda x: "—" if x is None else ("+" if x >= 0 else "-") + m(abs(x))
+            print(f"  Where the cash drop came from: {m(cd['before'])} (year before) -> {m(cd['last'])} (last year)")
+            print(f"     cash from operations       {sg(cd['ocf_change'])}")
+            print(f"       of which profit          {sg(cd['profit_change'])}")
+            print(f"       of which other items     {sg(cd['other_change'])}")
+            print(f"     stores & equipment spend   {sg(cd['capex_change'])}")
+            print(f"     stock pay                  {sg(cd['sbc_change'])}")
+            print(f"     biggest part: {cd['cause']}. Check: {cd['check']}")
         f = v.get("fscore")
         if f:
             print(f"  Piotroski F-score: {f['score']} of {f['out_of']}")

@@ -113,43 +113,44 @@ def dcf(fcf0: float, growth: float, r: float | None = None, tg: float | None = N
     return sum(dcf_parts(fcf0, growth, r, tg, trend))
 
 
-CAUSES = {
-    "profit": ("profit fell", "the business earned less; this may last"),
-    "timing": ("more cash got tied up in inventory, unpaid bills and other timing items",
-               "often temporary, e.g. extra inventory that later sells"),
-    "spending": ("spending on stores and equipment rose", "investing for growth; often temporary"),
-    "stock_pay": ("more pay in stock", "a real cost to owners that tends to persist"),
+# What to look up for each source of a cash-flow drop. Deliberately no verdict on
+# whether it will last: that needs the cash-flow statement and management's account.
+CHECK = {
+    "operating": ("lower cash from operations",
+                  "Look at the cash-flow statement and the earnings release: was it lower profit, "
+                  "or more cash tied up in inventory, unpaid bills, taxes or other timing items?"),
+    "capex": ("higher spending on stores and equipment",
+              "Look at what the spending is for (new stores, distribution centres, technology) "
+              "and whether management expects it to stay this high."),
+    "stock_pay": ("more pay in stock", "Look at whether stock-based pay keeps rising as a share of sales."),
 }
 
 
 def cash_drop(rows: list[dict]) -> dict | None:
-    """Why did owner cash flow fall? Compares last year with the average of the two
-    years before and splits the change into its parts:
-      owner FCF = profit + timing items (operating cash - profit) - capex - stock pay
-    Returns None unless cash fell by more than 10%."""
-    if len(rows) < 3:
+    """Where did the fall in owner cash flow come from? Facts only, last year vs the
+    year before:  owner FCF = operating cash flow - capex - stock pay, and
+    operating cash flow = profit + everything else (inventory, bills, taxes, timing).
+    Returns None unless owner cash flow fell by more than 10%."""
+    if len(rows) < 2:
         return None
-    t, prev = rows[-1], rows[-3:-1]
-    keys = ("owner_fcf", "operating_cash_flow", "net_income", "capex")
-    if any(r.get(k) is None for r in [t, *prev] for k in keys):
+    t, p = rows[-1], rows[-2]
+    keys = ("owner_fcf", "operating_cash_flow", "capex")
+    if any(r.get(k) is None for r in (t, p) for k in keys):
         return None
-
-    def avg(k):
-        return sum(r.get(k) or 0.0 for r in prev) / 2
-
-    before, last = avg("owner_fcf"), t["owner_fcf"]
+    before, last = p["owner_fcf"], t["owner_fcf"]
     if before <= 0 or last >= 0.9 * before:
         return None
-    parts = {
-        "profit": t["net_income"] - avg("net_income"),
-        "timing": (t["operating_cash_flow"] - t["net_income"])
-                  - (avg("operating_cash_flow") - avg("net_income")),
-        "spending": -(t["capex"] - avg("capex")),
-        "stock_pay": -((t.get("sbc") or 0.0) - avg("sbc")),
-    }
-    main = min(parts, key=parts.get)          # the biggest negative contributor
-    return {"last": last, "before": before, "change": last - before, "parts": parts,
-            "main": main, "cause": CAUSES[main][0], "meaning": CAUSES[main][1]}
+    d_ocf = t["operating_cash_flow"] - p["operating_cash_flow"]
+    d_capex = t["capex"] - p["capex"]
+    d_sbc = (t.get("sbc") or 0.0) - (p.get("sbc") or 0.0)
+    d_ni = (t["net_income"] - p["net_income"]
+            if t.get("net_income") is not None and p.get("net_income") is not None else None)
+    effects = {"operating": d_ocf, "capex": -d_capex, "stock_pay": -d_sbc}   # effect on owner FCF
+    main = min(effects, key=effects.get)
+    return {"last": last, "before": before, "change": last - before,
+            "ocf_change": d_ocf, "capex_change": d_capex, "sbc_change": d_sbc,
+            "profit_change": d_ni, "other_change": None if d_ni is None else d_ocf - d_ni,
+            "main": main, "cause": CHECK[main][0], "check": CHECK[main][1]}
 
 
 def warnings(rows: list[dict]) -> list[str]:

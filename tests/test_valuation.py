@@ -274,16 +274,19 @@ def cf(ni, ocf, capex, sbc=0):
             "owner_fcf": ocf - capex - sbc}
 
 
-def test_cash_drop_from_spending_is_called_investing():
-    d = cash_drop([cf(100, 150, 30), cf(100, 150, 30), cf(100, 150, 90)])
-    assert d["main"] == "spending" and d["parts"]["spending"] == pytest.approx(-60)
-    assert d["parts"]["profit"] == 0 and "investing" in d["meaning"]
+def test_lululemon_cash_drop_is_mostly_operations_not_capex():
+    # OCF and capex as in Lululemon FY2025 -> FY2026 (2,273 -> 1,602; 689 -> 681); profit illustrative.
+    d = cash_drop([cf(1800, 2273, 689, 91), cf(1500, 1602, 681, 62)])
+    assert d["main"] == "operating"
+    assert d["ocf_change"] == pytest.approx(-671) and d["capex_change"] == pytest.approx(-8)
+    assert d["profit_change"] == pytest.approx(-300) and d["other_change"] == pytest.approx(-371)
+    assert "temporary" not in d["check"] and "last" not in d["cause"]
 
 
-def test_cash_drop_from_profit_and_from_inventory():
-    assert cash_drop([cf(100, 150, 30), cf(100, 150, 30), cf(40, 90, 30)])["main"] == "profit"
-    assert cash_drop([cf(100, 150, 30), cf(100, 150, 30), cf(100, 80, 30)])["main"] == "timing"
+def test_cash_drop_from_spending():
+    d = cash_drop([cf(100, 150, 30), cf(100, 150, 90)])
+    assert d["main"] == "capex" and d["capex_change"] == 60
 
 
 def test_no_breakdown_when_cash_held_up():
-    assert cash_drop([cf(100, 150, 30), cf(100, 150, 30), cf(100, 145, 30)]) is None
+    assert cash_drop([cf(100, 150, 30), cf(100, 145, 30)]) is None

@@ -584,16 +584,21 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
   }
 
   function cashDrop(d) {
-    var labels = { profit: "Profit", timing: "Inventory, unpaid bills & timing", spending: "Stores & equipment spending", stock_pay: "Pay in stock" };
-    var rows = ["profit", "timing", "spending", "stock_pay"].map(function (k) {
-      var v = d.parts[k];
-      return '<tr><td>' + labels[k] + '</td><td>' + (v >= 0 ? '+' : '−') + big(Math.abs(v)) + '</td></tr>';
-    }).join('');
-    return '<p><b>Why cash fell:</b> from ' + big(d.before) + ' (average of the two years before) to ' + big(d.last) +
-      ' last year, <b>mainly because ' + esc(d.cause) + '</b> (' + esc(d.meaning) + ').</p>' +
-      '<table><tr><th>Change in cash from…</th><th></th></tr>' + rows + '</table>' +
-      '<p class="muted">Rough guide: if spending or timing items explain most of the drop, the higher value is more believable; ' +
-      'if profit explains most of it, the lower one is. Read the latest earnings release to confirm.</p>';
+    var sg = function (v) { return v == null ? '—' : (v >= 0 ? '+' : '−') + big(Math.abs(v)); };
+    var row = function (label, v, sub) {
+      return '<tr><td' + (sub ? ' style="padding-left:16px;color:var(--text-2)"' : '') + '>' + label + '</td><td>' + sg(v) + '</td></tr>';
+    };
+    return '<p><b>Where the drop came from:</b> owner cash flow went from ' + big(d.before) + ' the year before to ' +
+      big(d.last) + ' last year (' + sg(d.change) + '). The biggest part was <b>' + esc(d.cause) + '</b>.</p>' +
+      '<table><tr><th>Change, last year vs the year before</th><th></th></tr>' +
+      row('Cash from operations', d.ocf_change) +
+      (d.profit_change != null ? row('of which: profit', d.profit_change, true) +
+        row('of which: inventory, bills, taxes &amp; other', d.other_change, true) : '') +
+      row('Spending on stores &amp; equipment', d.capex_change) +
+      row('Pay in stock', d.sbc_change) + '</table>' +
+      '<p><b>What to check:</b> ' + esc(d.check) + '</p>' +
+      '<p class="muted">This shows where the drop came from, not whether it will last. Neither value above is a guaranteed safe price; ' +
+      'both rest on assumptions.</p>';
   }
 
   // ---------- brief ----------
