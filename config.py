@@ -58,15 +58,25 @@ BIG_DROP_YEARS_MAX = 2        # ...may happen at most this many times
 # =============================== PHASE 2: VALUATION ===============================
 # Intrinsic value = today's value of all future owner free cash flow.
 
-NORMALIZE_YEARS = 3       # starting cash flow = average of the last 3 years (smooths one-offs)
+# Starting cash flow = typical (median) owner-FCF margin over the last 5 years x the
+# latest year's revenue. The median ignores one-off years (e.g. a big tax deposit or
+# acquisition payment); scaling by latest revenue keeps growing companies at today's size.
+NORMALIZE_YEARS = 5
+MIN_MARGIN_YEARS = 3      # need at least this many years with both cash flow and revenue
 DISCOUNT_RATE = 0.10      # the return you demand; future cash is shrunk by this each year
 MAX_GROWTH = 0.10         # growth is never assumed above this, however fast the past was
+MIN_GROWTH = -0.05        # shrinking businesses may be projected to keep shrinking
 PROJECTION_YEARS = 10     # years projected individually
 HIGH_GROWTH_YEARS = 5     # years 1-5 grow at the estimated rate, then fade...
 TERMINAL_GROWTH = 0.025   # ...to this long-run rate (about inflation) for all years after 10
 
-# No credit is given for cash on hand, but net debt (debt above cash) is subtracted.
-# That errs on the cautious side.
+# Owner cash flow is already AFTER interest payments, so it is cash available to
+# shareholders: it is discounted at the shareholders' required return and debt is
+# NOT subtracted again (that would count it twice). The quality screen separately
+# rejects companies with too much debt.
+
+# Bear / base / bull range shown in each brief: (discount rate, long-run growth).
+SCENARIOS = {"bear": (0.12, 0.020), "base": (0.10, 0.025), "bull": (0.08, 0.030)}
 
 MARGIN_OF_SAFETY = 0.25   # buy signal only when price is at least 25% below value
 WATCHLIST_SIZE = 15       # how many closest-to-buy companies to show

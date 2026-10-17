@@ -34,16 +34,30 @@ def test_growth_uses_lower_of_revenue_and_fcf_and_is_capped():
     r = rows(growth=0.30)
     g, why = estimate_growth(r)
     assert g == C.MAX_GROWTH and "limited" in why
-    shrinking = rows(growth=-0.05)
-    assert estimate_growth(shrinking)[0] == 0.0
+    assert estimate_growth(rows(growth=-0.03))[0] == pytest.approx(-0.03)   # shrinking is allowed
+    assert estimate_growth(rows(growth=-0.20))[0] == C.MIN_GROWTH          # ...down to the floor
 
 
-def test_net_debt_subtracted_but_cash_gets_no_credit():
+def test_debt_is_not_subtracted_twice():
+    # Owner cash flow is already after interest, so debt and cash don't change value.
     base = value_company(rows())["value_per_share"]
-    with_cash = value_company(rows(cash=500))["value_per_share"]
-    with_debt = value_company(rows(debt=500))["value_per_share"]
-    assert with_cash == pytest.approx(base)
-    assert with_debt == pytest.approx(base - 500 / 10)
+    assert value_company(rows(debt=500))["value_per_share"] == pytest.approx(base)
+    assert value_company(rows(cash=500))["value_per_share"] == pytest.approx(base)
+    assert value_company(rows(debt=500))["net_debt"] == 500          # still shown
+
+
+def test_slow_and_shrinking_businesses_never_fade_upward():
+    g = C.TERMINAL_GROWTH
+    assert dcf(100, 0.0) == pytest.approx(100 / C.DISCOUNT_RATE)      # flat forever = F/r
+    assert dcf(100, 0.01) < dcf(100, 0.01, tg=0.01) + 1e-9            # 1% grower stays at 1%
+    assert dcf(100, -0.05) < dcf(100, 0.0)                            # shrinking is worth less
+    assert dcf(100, g) == pytest.approx(100 * (1 + g) / (C.DISCOUNT_RATE - g))
+
+
+def test_bear_base_bull_range_and_terminal_share():
+    v = value_company(rows())
+    assert v["value_low"] < v["value_per_share"] < v["value_high"]
+    assert 0.3 < v["terminal_share"] < 0.8
 
 
 def test_negative_cash_flow_or_missing_shares_gives_no_value():
@@ -150,3 +164,35 @@ def test_shares_filed_date_recorded():
         "units": {"shares": [flow(2025, 50, "2026-02-14"), flow(2025, 49, "2026-03-01")]}}
     rows_, _ = annual_table(f)
     assert rows_[-1]["diluted_shares"] == 49 and rows_[-1]["shares_filed"] == "2026-03-01"
+
+
+# ---------------- normalized cash flow ----------------
+from valuation import normalized_fcf  # noqa: E402
+
+
+def test_one_off_years_are_ignored():
+    # Steady 20% margin, but two of the last three years hit by one-time payments.
+    r = rows(fcf=200, growth=0.0, rev0=1000)
+    r[-2]["owner_fcf"] = 50
+    r[-1]["owner_fcf"] = 60
+    assert normalized_fcf(r) == pytest.approx(200)            # median margin 20% x revenue 1000
+    clean = value_company(rows(fcf=200, growth=0.0, rev0=1000))["value_per_share"]
+    assert value_company(r)["value_per_share"] == pytest.approx(clean)
+
+
+def test_growers_are_valued_at_todays_size():
+    r = rows(fcf=100, growth=0.30, rev0=1000)                 # cash flow growing 30% a year
+    assert normalized_fcf(r) == pytest.approx(r[-1]["owner_fcf"])
+
+
+def test_falls_back_to_median_cash_flow_without_revenue():
+    r = rows(fcf=100, growth=0.0)
+    for x in r:
+        x["revenue"] = None
+    r[-1]["owner_fcf"] = 10
+    assert normalized_fcf(r) == pytest.approx(100)
+
+
+def test_negative_typical_margin_gives_no_value():
+    r = rows(fcf=-5)
+    assert value_company(r)["value_per_share"] is None

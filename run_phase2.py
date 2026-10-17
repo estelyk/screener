@@ -20,7 +20,8 @@ from sizing import load_portfolio, suggest
 from valuation import price_check, value_company
 
 OUT = Path("output")
-FIELDS = ["ticker", "name", "sector", "signal", "price", "value_per_share", "buy_below",
+FIELDS = ["ticker", "name", "sector", "signal", "price", "value_per_share", "value_low",
+          "value_high", "terminal_share", "buy_below",
           "discount", "to_buy_price", "growth", "normalized_fcf", "net_debt", "shares",
           "verify", "suspicious", "warnings", "value_note"]
 
