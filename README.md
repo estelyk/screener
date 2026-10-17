@@ -105,3 +105,9 @@ details. Phase 3 builds the briefs from these.
   interest expense; otherwise the debt check is left unjudged.
 - Missing stock-comp tags are treated as zero and noted in `notes`.
 - The universe is today's S&P 500, which is fine for tracking forward but not for backtesting.
+
+## Phase 5: track record
+`tracker.py` records every buy signal on the day it appears (price, value, warnings,
+model version) and compares its total return, dividends included, with SPY and VTV
+over the same days. The record is encrypted with your passphrase and published as
+`ledger.enc` next to the page. See "Track record" on the page; it can be downloaded as a CSV.

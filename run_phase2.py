@@ -161,7 +161,11 @@ def main() -> None:
             print(f"(Skipped profiles: {type(e).__name__}: {e})")
     else:
         print("\n(Set SEC_USER_AGENT to add filing links to the briefs.)")
-    page = build_site.build(profiles)
+    # Phase 5: record today's signals and update their paper returns.
+    import tracker
+    from alerts import parse_holdings
+    tracking = tracker.run(results, parse_holdings(os.environ.get("HOLDINGS")))
+    page = build_site.build(profiles, tracking)
     print(f"Web page: {page}   (double-click to open it in your browser)")
 
 

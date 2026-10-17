@@ -401,6 +401,8 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     h += '<h2>Watchlist</h2><p class="muted" style="margin:-4px 0 10px">Closest to their buy price. A fuller bar means closer.</p>';
     h += watch.length ? '<div class="list">' + watch.map(row).join("") + '</div>' : '<div class="card empty">Nothing valued yet.</div>';
 
+    h += trackCard();
+
     h += '<h2>All quality businesses</h2><p class="muted" style="margin:-4px 0 10px">The ' + passing().length +
          ' companies that passed the quality screen, closest to their buy price first.</p>' +
          '<div class="list">' + passing().map(row).join("") + '</div>';
@@ -676,6 +678,99 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     box.appendChild(barChart("Long-term debt", ser("debt"), big));
   }
 
+  // ---------- Phase 5: paper tracking ----------
+  function signedPct(x) { return x == null ? "—" : (x >= 0 ? "+" : "−") + (Math.abs(x) * 100).toFixed(1) + "%"; }
+  function shortDate(d) {
+    if (!d) return "—";
+    var p = d.split("-"), m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return m[+p[1] - 1] + " " + (+p[2]) + ", " + p[0];
+  }
+  function trackEntries() { return (DATA.tracking && DATA.tracking.entries) || []; }
+  function trackStats(es) {
+    var done = es.filter(function (e) { return e.ret != null; });
+    var avg = function (k) {
+      var v = done.filter(function (e) { return e[k] != null; });
+      return v.length ? v.reduce(function (a, e) { return a + e[k]; }, 0) / v.length : null;
+    };
+    return { n: es.length, measured: done.length, ret: avg("ret"), spy: avg("spy"), vtv: avg("vtv"),
+             beat: done.filter(function (e) { return e.spy != null && e.ret > e.spy; }).length };
+  }
+  function trackCard() {
+    var T = DATA.tracking;
+    if (!T) return "";
+    var st = trackStats(trackEntries());
+    var h = '<h2>Track record</h2><a class="card sig" href="#/~track">';
+    if (!st.n) {
+      h += '<p>No buy signals recorded yet. Since ' + esc(shortDate(T.summary.started)) +
+           ', every new signal is recorded automatically and compared with the S&amp;P 500.</p>';
+    } else {
+      h += '<div class="row1"><span>' + st.n + ' signal' + (st.n === 1 ? '' : 's') + ' since ' +
+        esc(shortDate(T.summary.started)) + '</span><span class="chev" aria-hidden="true">›</span></div>' +
+        '<div class="nums"><span>Signals <b>' + signedPct(st.ret) + '</b></span><span>S&amp;P 500 <b>' +
+        signedPct(st.spy) + '</b></span><span>Value fund <b>' + signedPct(st.vtv) + '</b></span></div>';
+    }
+    return h + '</a>';
+  }
+  function trackPage() {
+    var T = DATA.tracking || { summary: {}, entries: [] };
+    var es = trackEntries().slice().sort(function (a, b) { return b.start.localeCompare(a.start); });
+    var s = loadSizing(), held = {};
+    ((s && s.holdings) || []).forEach(function (t) { held[t] = true; });
+    var all = trackStats(es), mine = trackStats(es.filter(function (e) { return held[e.ticker]; }));
+
+    var h = '<a class="back" href="#">‹ All companies</a><h1>Track record</h1>' +
+      '<p class="sub">Model ' + esc(T.summary.model || "") + ' · recording since ' + esc(shortDate(T.summary.started)) + '</p>';
+    h += '<div class="card stack"><p>Every buy signal is recorded automatically on the day it appears, then “held on paper”. ' +
+      'Its return (price change plus dividends) is compared with putting the same money into the S&amp;P 500 (SPY) ' +
+      'and a value-stock fund (VTV) on the same day.</p>' +
+      '<p class="muted">Months of results are mostly luck. Judge the model on years and many signals, not on a few winners or losers.</p></div>';
+
+    var block = function (title, st) {
+      if (!st.measured) return '';
+      return '<h2>' + title + '</h2><div class="summary">' +
+        '<div class="stat"><b>' + signedPct(st.ret) + '</b><span>signals, average</span></div>' +
+        '<div class="stat"><b>' + signedPct(st.spy) + '</b><span>S&amp;P 500, same days</span></div>' +
+        '<div class="stat"><b>' + signedPct(st.vtv) + '</b><span>value fund, same days</span></div></div>' +
+        '<p class="muted" style="margin:8px 0 0">Beat the S&amp;P 500: ' + st.beat + ' of ' + st.measured + '.</p>';
+    };
+    h += block("Every signal (" + all.n + ")", all);
+    if (mine.n) h += block("Signals you hold (" + mine.n + ")", mine);
+
+    h += '<h2>All recorded signals</h2>';
+    if (!es.length) {
+      h += '<div class="card empty">None yet. The screen is strict, so weeks can pass without one.</div>';
+    } else {
+      h += '<div class="card tablewrap"><table><thead><tr><th>Stock</th><th>Signal</th><th>Price</th>' +
+        '<th>Return</th><th>S&amp;P</th><th>VTV</th></tr></thead><tbody>' +
+        es.map(function (e) {
+          var flags = (e.warnings && e.warnings.length ? ' !' : '') + (e.verify ? ' V' : '') + (e.suspicious ? ' ?' : '');
+          return '<tr><td><a href="#/' + encodeURIComponent(e.ticker) + '">' + esc(e.ticker) + '</a>' +
+            (held[e.ticker] ? ' ●' : '') + esc(flags) + (e.active ? '' : '<div class="muted" style="font-size:12px">ended</div>') + '</td>' +
+            '<td>' + esc(e.start.slice(5).replace("-", "/") + "/" + e.start.slice(2, 4)) + '</td><td>' + px(e.price) + '</td><td>' + signedPct(e.ret) + '</td>' +
+            '<td>' + signedPct(e.spy) + '</td><td>' + signedPct(e.vtv) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<p class="muted">Signal = the day it became a buy signal; Price = the price that day. ' +
+        '● you hold it · ! had a warning · V numbers estimated · ? discount looked too large · ' +
+        'ended = no longer a signal, still tracked from its signal day.</p>' +
+        '<p><button class="iconbtn" id="csvBtn">Download as a spreadsheet (CSV)</button></p>';
+    }
+    h += footer();
+    app.innerHTML = h;
+    window.scrollTo(0, 0);
+    var b = document.getElementById("csvBtn");
+    if (b) b.addEventListener("click", function () { downloadCsv(es); });
+  }
+  function downloadCsv(es) {
+    var cols = ["ticker","name","sector","start","active","ended","price","value","value_low","value_high",
+                "buy_below","discount","terminal_share","growth","verify","suspicious","warnings","ret","spy","vtv","as_of","model","code"];
+    var q = function (v) { v = Array.isArray(v) ? v.join("; ") : (v == null ? "" : String(v)); return '"' + v.replace(/"/g, '""') + '"'; };
+    var csv = cols.join(",") + "\n" + es.map(function (e) { return cols.map(function (k) { return q(e[k]); }).join(","); }).join("\n");
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "signal-track-record.csv";
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
   function footer() {
     return '<footer>Screening output, not investment advice: it finds candidates, you decide. ' +
       'Financials from SEC filings; prices from Yahoo, as of the last close before ' + esc(DATA.generated) + '. ' +
@@ -692,6 +787,7 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
   function route() {
     if (!DATA) return;
     var m = location.hash.match(/^#\/(.+)$/);
+    if (m && m[1] === "~track") return trackPage();
     var c = m && BY[decodeURIComponent(m[1])];
     if (c) brief(c); else home();
   }

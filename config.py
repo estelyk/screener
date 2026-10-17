@@ -88,3 +88,8 @@ CASH_BACKING_MIN = 0.80   # warn if 5-yr operating cash flow < 80% of 5-yr repor
 # Companies you own get a "review" flag (not a sell order) when the business looks
 # worse or the price runs far ahead of value. See review.py.
 OVERVALUED_ABOVE = 0.50   # flag when price is more than 50% above estimated value
+
+# ================================ PAPER TRACKING ================================
+# Recorded with every buy signal, so results can be tied to the exact rules used.
+# Change this whenever the model's rules change (frozen for the 3-month trial).
+MODEL_VERSION = "v1.0 (frozen Oct 16, 2026)"

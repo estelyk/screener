@@ -131,7 +131,7 @@ def write_site(data: dict, site: Path = SITE) -> Path:
     return site / "index.html"
 
 
-def build(profiles: dict[str, dict] | None = None) -> Path:
+def build(profiles: dict[str, dict] | None = None, tracking: dict | None = None) -> Path:
     if profiles is None:
         p = OUT / "profiles.json"
         profiles = json.loads(p.read_text()) if p.exists() else {}
@@ -139,6 +139,11 @@ def build(profiles: dict[str, dict] | None = None) -> Path:
     companies = {p.stem: json.loads(p.read_text()) for p in (OUT / "companies").glob("*.json")}
     generated = datetime.now().strftime("%b %-d, %Y")
     data = page_data(valuations, companies, profiles or {}, generated, excluded_companies())
+    if tracking is None and Path("state/ledger.json").exists():
+        import tracker
+        tracking = {"summary": tracker.summary(json.loads(Path("state/ledger.json").read_text())),
+                    "entries": json.loads(Path("state/ledger.json").read_text())["entries"]}
+    data["tracking"] = tracking
     # Unencrypted copy for alerts.py; output/ is never published or uploaded.
     (OUT / "page_data.json").write_text(json.dumps(data))
     return write_site(data)
