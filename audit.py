@@ -86,6 +86,13 @@ def main() -> None:
               f"{p(v.get('last_growth'))}): {d(v.get('value_no_recovery'))}")
         print(f"  Price: {d(v['price'])}   buy below: {d(v['buy_below'])}   discount: {p(v['discount'])}"
               f"   signal: {v['signal']}")
+        cd = v.get("cash_drop")
+        if cd:
+            print(f"  Why cash fell: {m(cd['before'])} (avg of the 2 years before) -> {m(cd['last'])}")
+            for k, label in [("profit", "profit"), ("timing", "inventory/bills/timing"),
+                             ("spending", "stores & equipment"), ("stock_pay", "stock pay")]:
+                print(f"     {label:<24} {'+' if cd['parts'][k] >= 0 else '-'}{m(abs(cd['parts'][k]))}")
+            print(f"     mainly: {cd['cause']} ({cd['meaning']})")
         f = v.get("fscore")
         if f:
             print(f"  Piotroski F-score: {f['score']} of {f['out_of']}")

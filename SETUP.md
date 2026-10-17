@@ -67,7 +67,7 @@ runs are faster. A green check means it worked.
 
 ## What happens from now on
 - **Weekdays ~5–6pm ET:** GitHub runs the screener and updates the page.
-- **New buy signal:** GitHub opens an issue titled "New buy signal" and emails you.
+- **New pre-buy watch stock:** GitHub opens an issue titled "New pre-buy watch stock" and emails you.
   It never names the stock; open your page to see it.
 - **A holding gets a new review flag** (fails the quality screen, a "cheap for a
   reason" warning, or price more than 50% above estimated value): GitHub opens a

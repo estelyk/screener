@@ -263,3 +263,27 @@ def test_no_recovery_value_only_when_last_year_was_weaker():
     v = value_company(rows())                                        # steady grower
     assert v["value_no_recovery"] is None
     assert not any("recovers" in w for w in v["warnings"])
+
+
+# ---------------- why cash fell ----------------
+from valuation import cash_drop  # noqa: E402
+
+
+def cf(ni, ocf, capex, sbc=0):
+    return {"net_income": ni, "operating_cash_flow": ocf, "capex": capex, "sbc": sbc,
+            "owner_fcf": ocf - capex - sbc}
+
+
+def test_cash_drop_from_spending_is_called_investing():
+    d = cash_drop([cf(100, 150, 30), cf(100, 150, 30), cf(100, 150, 90)])
+    assert d["main"] == "spending" and d["parts"]["spending"] == pytest.approx(-60)
+    assert d["parts"]["profit"] == 0 and "investing" in d["meaning"]
+
+
+def test_cash_drop_from_profit_and_from_inventory():
+    assert cash_drop([cf(100, 150, 30), cf(100, 150, 30), cf(40, 90, 30)])["main"] == "profit"
+    assert cash_drop([cf(100, 150, 30), cf(100, 150, 30), cf(100, 80, 30)])["main"] == "timing"
+
+
+def test_no_breakdown_when_cash_held_up():
+    assert cash_drop([cf(100, 150, 30), cf(100, 150, 30), cf(100, 145, 30)]) is None

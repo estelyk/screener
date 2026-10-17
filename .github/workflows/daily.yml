@@ -65,7 +65,7 @@ jobs:
       - name: Phase 2 and 3 - valuation and page
         run: python run_phase2.py
 
-      - name: Check for new buy signals and holding reviews
+      - name: Check for new pre-buy watch stocks and holding reviews
         id: alert
         run: python alerts.py
 
@@ -107,12 +107,12 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       # GitHub emails you about each issue. Neither one ever names the stock.
-      - name: Alert - new buy signal
+      - name: Alert - new pre-buy watch stock
         if: needs.screen.outputs.new_signal == 'true'
         run: |
           gh issue create \
-            --title "New buy signal ($(date -u +%Y-%m-%d))" \
-            --body "@${{ github.repository_owner }} A new buy signal appeared. Open your Value Screener page to see it."
+            --title "New pre-buy watch stock ($(date -u +%Y-%m-%d))" \
+            --body "@${{ github.repository_owner }} A stock entered your pre-buy watch (price at least 25% below its estimated value). Open your Value Screener page and research it before deciding."
 
       - name: Alert - holding needs a review
         if: needs.screen.outputs.review_needed == 'true'

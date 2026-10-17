@@ -113,6 +113,45 @@ def dcf(fcf0: float, growth: float, r: float | None = None, tg: float | None = N
     return sum(dcf_parts(fcf0, growth, r, tg, trend))
 
 
+CAUSES = {
+    "profit": ("profit fell", "the business earned less; this may last"),
+    "timing": ("more cash got tied up in inventory, unpaid bills and other timing items",
+               "often temporary, e.g. extra inventory that later sells"),
+    "spending": ("spending on stores and equipment rose", "investing for growth; often temporary"),
+    "stock_pay": ("more pay in stock", "a real cost to owners that tends to persist"),
+}
+
+
+def cash_drop(rows: list[dict]) -> dict | None:
+    """Why did owner cash flow fall? Compares last year with the average of the two
+    years before and splits the change into its parts:
+      owner FCF = profit + timing items (operating cash - profit) - capex - stock pay
+    Returns None unless cash fell by more than 10%."""
+    if len(rows) < 3:
+        return None
+    t, prev = rows[-1], rows[-3:-1]
+    keys = ("owner_fcf", "operating_cash_flow", "net_income", "capex")
+    if any(r.get(k) is None for r in [t, *prev] for k in keys):
+        return None
+
+    def avg(k):
+        return sum(r.get(k) or 0.0 for r in prev) / 2
+
+    before, last = avg("owner_fcf"), t["owner_fcf"]
+    if before <= 0 or last >= 0.9 * before:
+        return None
+    parts = {
+        "profit": t["net_income"] - avg("net_income"),
+        "timing": (t["operating_cash_flow"] - t["net_income"])
+                  - (avg("operating_cash_flow") - avg("net_income")),
+        "spending": -(t["capex"] - avg("capex")),
+        "stock_pay": -((t.get("sbc") or 0.0) - avg("sbc")),
+    }
+    main = min(parts, key=parts.get)          # the biggest negative contributor
+    return {"last": last, "before": before, "change": last - before, "parts": parts,
+            "main": main, "cause": CAUSES[main][0], "meaning": CAUSES[main][1]}
+
+
 def warnings(rows: list[dict]) -> list[str]:
     """Plain-English reasons a stock might be cheap for a good reason."""
     out = []
@@ -172,7 +211,7 @@ def value_company(rows: list[dict], split_factor: float = 1.0) -> dict:
     split_factor: shares multiply by this for splits since the last annual report."""
     out = {"value_per_share": None, "value_low": None, "value_high": None, "long_run_growth": None,
            "value_no_recovery": None, "last_fcf": None, "last_growth": None,
-           "fscore": fscore(rows), "zscore": None,
+           "fscore": fscore(rows), "zscore": None, "cash_drop": cash_drop(rows),
            "terminal_share": None, "growth": None, "normalized_fcf": None,
            "net_debt": None, "shares": None, "value_note": "", "warnings": warnings(rows)}
     fcf0 = normalized_fcf(rows)
