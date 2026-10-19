@@ -115,6 +115,11 @@ def main() -> None:
             print(f"     stores & equipment spend   {sg(cd['capex_change'])}")
             print(f"     stock pay                  {sg(cd['sbc_change'])}")
             print(f"     biggest part: {cd['cause']}. Check: {cd['check']}")
+        dc = v.get("debt_check")
+        if dc:
+            yr = lambda y: "—" if y is None else f"{y:.1f} yrs"
+            print(f"  Debt check: loans {m(dc['loans'])} ({yr(dc['years_loans'])} of avg profit {m(dc['avg_profit'])}), "
+                  f"leases {m(dc['leases'])}, loans+leases {yr(dc['years_with_leases'])}  (limit {dc['limit']:g})")
         f = v.get("fscore")
         if f:
             print(f"  Piotroski F-score: {f['score']} of {f['out_of']}")

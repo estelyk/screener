@@ -290,3 +290,26 @@ def test_cash_drop_from_spending():
 
 def test_no_breakdown_when_cash_held_up():
     assert cash_drop([cf(100, 150, 30), cf(100, 145, 30)]) is None
+
+
+# ---------------- debt check (worked out on the page) ----------------
+from valuation import debt_check  # noqa: E402
+
+
+def test_debt_check_matches_hand_calculation():
+    # No loans, $1.8B of leases, profit 1.6B / 1.8B / 1.6B: the case checked by hand.
+    r = [{"net_income": 1.6e9}, {"net_income": 1.8e9},
+         {"net_income": 1.6e9, "long_term_debt": 0.0, "lease_liabilities": 1.8e9, "debt_assumed_zero": True}]
+    d = debt_check(r)
+    assert d["loans"] == 0 and d["years_loans"] == 0 and d["assumed_zero"]
+    assert d["years_with_leases"] == pytest.approx(1.8 / (5.0 / 3))
+
+
+def test_short_term_borrowings_can_push_debt_over_the_limit():
+    r = rows()
+    for x in r:
+        x["net_income"] = 100
+    r[-1].update(long_term_debt=350, short_term_debt=100)
+    v = value_company(r)
+    assert v["debt_check"]["years_loans"] == pytest.approx(4.5)
+    assert any("short-term borrowings" in w for w in v["warnings"])

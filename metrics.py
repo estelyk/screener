@@ -93,6 +93,9 @@ TAGS: dict[str, list[str]] = {
     ],
     "current_assets": ["AssetsCurrent"],
     "total_assets": ["Assets"],
+    # Shown in the brief's debt check (not used by the quality screen itself).
+    "short_term_debt": ["ShortTermBorrowings", "CommercialPaper", "ShortTermBankLoansAndNotesPayable"],
+    "lease_liabilities": ["OperatingLeaseLiability", "OperatingLeaseLiabilityNoncurrent"],
     "total_liabilities": ["Liabilities"],
     "retained_earnings": ["RetainedEarningsAccumulatedDeficit"],
     "current_liabilities": ["LiabilitiesCurrent"],
@@ -108,7 +111,7 @@ TAGS["diluted_shares"] = [
 UNITS = {"diluted_shares": "shares"}  # everything else is USD
 INSTANT_METRICS = {"equity", "long_term_debt", "cash", "current_assets",
                    "current_liabilities", "net_ppe", "total_assets", "total_liabilities",
-                   "retained_earnings"}  # balance-sheet snapshots
+                   "retained_earnings", "short_term_debt", "lease_liabilities"}  # balance-sheet snapshots
 ALL_TAGS = sorted({t for tags in TAGS.values() for t in tags})
 
 

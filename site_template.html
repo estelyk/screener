@@ -339,7 +339,7 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
 
   function cautions(c) {
     var list = (c.warnings || []).slice();
-    if (c.verify) list.push("debt figure assumed or estimated: confirm in the 10-K");
+    if (c.verify) list.push("debt figure assumed or estimated by the app: see “Debt check” below");
     if (c.suspicious) list.push("discount unusually large: check the data before trusting it");
     if (c.sector === "Health Care") list.push("healthcare: check your employer's conflict-of-interest rules");
     return list;
@@ -583,6 +583,30 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     return el;
   }
 
+  function debtSection(d) {
+    var yrs = function (y) { return y == null ? '—' : y.toFixed(1) + ' years'; };
+    var ok = function (y) {
+      return y == null ? '' : y <= d.limit ? ' <span class="st-ok">✓ within the limit of ' + d.limit + '</span>'
+                                           : ' <span class="st-fail">✗ over the limit of ' + d.limit + '</span>';
+    };
+    var src = d.assumed_zero ? 'No debt figure was filed and the company pays almost no interest, so the app counts its loans as zero. '
+            : d.estimated ? 'No debt figure was filed, so the app estimated it from the interest paid (' + big(d.interest) + ' a year at about 4%). '
+            : '';
+    var h = '<h2>Debt check</h2><div class="card stack">' +
+      '<p>Could it pay off what it owes from profit? Average profit over the last 3 years: <b>' + big(d.avg_profit) + '</b> a year.</p>' +
+      '<table><tr><th></th><th>Amount</th><th>Years of profit</th></tr>' +
+      '<tr><td>Loans' + (d.short_term ? ' (long + short-term)' : '') + '</td><td>' + big(d.loans) + '</td><td>' + yrs(d.years_loans) + '</td></tr>' +
+      (d.leases ? '<tr><td>Loans + leases</td><td>' + big(d.loans + d.leases) + '</td><td>' + yrs(d.years_with_leases) + '</td></tr>' : '') +
+      '</table>' +
+      '<p><b>Loans:</b> ' + yrs(d.years_loans) + ok(d.years_loans) + '</p>' +
+      (d.leases ? '<p class="muted">Leases (' + big(d.leases) + ') are long-term rent for stores, offices and warehouses. ' +
+        'Websites like Yahoo often add them to “Total debt”, which is why their figure can be higher. They are real commitments, ' +
+        'but less dangerous than loans: paid over many years and tied to locations that earn money.</p>' : '') +
+      (src ? '<p class="muted">' + src + 'Leases and short-term borrowings are read separately, so this check doesn’t need confirming by hand.</p>' : '') +
+      '</div>';
+    return h;
+  }
+
   function quarterlySection(c) {
     var q = c.quarterly, it = q.items || {};
     var sg = function (v) { return v == null ? '—' : (v >= 0 ? '+' : '−') + (Math.abs(v) * 100).toFixed(0) + '%'; };
@@ -709,6 +733,7 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
         '<p class="muted">Buy below = base value minus the ' + pct(DATA.settings.margin) + ' margin of safety.</p></div>';
     }
 
+    if (c.debt_check) h += debtSection(c.debt_check);
     if (c.quarterly) h += quarterlySection(c);
 
     if (passed && (c.fscore || c.zscore != null)) {

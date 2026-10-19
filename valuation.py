@@ -192,6 +192,10 @@ def warnings(rows: list[dict]) -> list[str]:
             out.append(f"value assumes cash flow recovers: it uses {f0 / last - 1:.0%} more than "
                        "last year's actual (see the no-recovery value)")
 
+    dc = debt_check(rows)
+    if dc and dc["years_loans"] is not None and dc["years_loans"] > dc["limit"] and dc["short_term"]:
+        out.append(f"with short-term borrowings included, debt is {dc['years_loans']:.1f} years of "
+                   f"profit (limit {dc['limit']:g}); see the debt check")
     fw = f_warning(fscore(rows))
     if fw:
         out.append(fw)
@@ -207,12 +211,37 @@ def warnings(rows: list[dict]) -> list[str]:
     return out
 
 
+def debt_check(rows: list[dict]) -> dict | None:
+    """The debt test, worked out in full so you don't have to check it by hand:
+    loans (long-term debt + short-term borrowings) and, separately, store/office
+    leases, each divided by average profit over the last 3 years."""
+    if not rows:
+        return None
+    t = rows[-1]
+    ni = [r.get("net_income") for r in rows[-3:] if r.get("net_income") is not None]
+    avg = sum(ni) / len(ni) if ni else None
+    lt = t.get("long_term_debt")
+    st = t.get("short_term_debt") or 0.0
+    leases = t.get("lease_liabilities")
+    loans = (lt or 0.0) + st
+
+    def years(x):
+        return x / avg if avg and avg > 0 else None
+
+    return {"long_term": lt, "short_term": st, "loans": loans, "leases": leases,
+            "avg_profit": avg, "years_loans": years(loans),
+            "years_with_leases": years(loans + (leases or 0.0)) if leases else None,
+            "limit": C.DEBT_YEARS_OF_EARNINGS_MAX, "interest": t.get("interest_expense"),
+            "assumed_zero": bool(t.get("debt_assumed_zero")), "estimated": bool(t.get("debt_estimated"))}
+
+
 def value_company(rows: list[dict], split_factor: float = 1.0) -> dict:
     """Intrinsic value per share, or a reason it can't be estimated.
     split_factor: shares multiply by this for splits since the last annual report."""
     out = {"value_per_share": None, "value_low": None, "value_high": None, "long_run_growth": None,
            "value_no_recovery": None, "last_fcf": None, "last_growth": None,
            "fscore": fscore(rows), "zscore": None, "cash_drop": cash_drop(rows),
+           "debt_check": debt_check(rows),
            "terminal_share": None, "growth": None, "normalized_fcf": None,
            "net_debt": None, "shares": None, "value_note": "", "warnings": warnings(rows)}
     fcf0 = normalized_fcf(rows)
