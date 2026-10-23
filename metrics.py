@@ -254,6 +254,9 @@ def annual_table(facts: dict, years: int = C.YEARS) -> tuple[list[dict], list[st
         ni, eq = r["net_income"], r["equity"]
         r["roe"] = ni / eq if ni is not None and eq is not None and eq > 0 else None
         r["roic"], r["roic_method"] = _return_on_capital(r)
+        # Shown, not used by the screen: a return above 100% (or below -100%) on capital
+        # means the capital base is too small for the ratio to mean anything.
+        r["roic_nm"] = r["roic"] is not None and abs(r["roic"]) > 1.0
         rows.append(r)
 
     # When the latest share count was filed: a split after this date isn't reflected

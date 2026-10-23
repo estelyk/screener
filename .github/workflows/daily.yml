@@ -30,6 +30,7 @@ jobs:
       PAGE_PASSPHRASE: ${{ secrets.PAGE_PASSPHRASE }}
       PAGE_SALT: ${{ github.repository }}
       HOLDINGS: ${{ secrets.HOLDINGS }}   # optional, e.g. "KO, COST"
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # optional: AI earnings summaries
     steps:
       - uses: actions/checkout@v6
 

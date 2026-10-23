@@ -90,6 +90,11 @@ RECOVERY_GAP_WARN = 0.30  # warn if the normal cash flow used is >30% above last
 # worse or the price runs far ahead of value. See review.py.
 OVERVALUED_ABOVE = 0.50   # flag when price is more than 50% above estimated value
 
+# ================================ AI EARNINGS SUMMARIES ================================
+# Used only when the ANTHROPIC_API_KEY secret is set (see summaries.py).
+SUMMARY_MODEL = "claude-sonnet-5-5"
+SUMMARY_MAX_NEW_PER_RUN = 25      # cap on new summaries per daily run (cost guard)
+
 # ================================ PAPER TRACKING ================================
 # Recorded with every buy signal, so results can be tied to the exact rules used.
 # Change this whenever the model's rules change (frozen for the 3-month trial).

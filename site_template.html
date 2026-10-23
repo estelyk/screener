@@ -192,6 +192,7 @@ th, td { text-align: right; padding: 6px 4px; border-top: 1px solid var(--border
 th:first-child, td:first-child { text-align: left; }
 th { color: var(--text-2); font-weight: 600; }
 .tablewrap { overflow-x: auto; }
+table.grp td:first-child { white-space: normal; }
 details.tbl summary { cursor: pointer; color: var(--accent); font-size: 15px; }
 .links a { display: flex; justify-content: space-between; padding: 11px 0; border-top: 1px solid var(--border);
            text-decoration: none; }
@@ -384,7 +385,7 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
       '<div class="stat"><b>' + pct(DATA.settings.margin) + '</b><span>margin of safety</span></div></div>';
 
     h += '<h2>Pre-buy watch</h2><p class="muted" style="margin:-4px 0 10px">Price is at least ' + pct(DATA.settings.margin) +
-      ' below the estimated value. Not a buy order: research these first.</p>';
+      ' below the estimated value. Not a buy order: research these first. “Passes conservative checks” = still cheap in the cautious and no-recovery cases, F-score 5+, no warnings.</p>';
     if (!signals.length) {
       h += '<div class="card empty">Nothing on the pre-buy watch today. That’s normal: the screen is strict. ' +
            '“Getting close” shows what’s nearest.</div>';
@@ -395,6 +396,7 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
         h += '<a class="card sig" href="#/' + encodeURIComponent(c.ticker) + '">' +
           '<div class="row1"><div style="min-width:0"><span class="tk">' + esc(c.ticker) + '</span> ' +
           '<span class="nm">' + esc(c.name) + '</span></div><span class="disc">' + pct(c.discount) + ' below value</span></div>' +
+          (c.conservative ? '<div><span class="pill good" style="margin:6px 0 0">Passes conservative checks</span></div>' : '') +
           rangeBar(c) +
           '<div class="nums"><span>Price <b>' + px(c.price) + '</b></span><span>Buy below <b>' + px(c.buy_below) +
           '</b></span><span>Value <b>' + px(c.value) + '</b></span></div>';
@@ -583,6 +585,19 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     return el;
   }
 
+  function aiSection(s) {
+    var parts = [["What happened", s.headline], ["Sales", s.sales], ["Profit", s.profit],
+                 ["One-time items", s.one_offs], ["Cash, debt & inventory", s.cash_debt],
+                 ["Management’s outlook", s.outlook], ["Leadership", s.management], ["Watch next time", s.watch]];
+    return '<h2>Latest earnings, summarised</h2><div class="card stack">' +
+      (s.period ? '<p class="muted">' + esc(s.period) + (s.date ? ' · released ' + esc(shortDate(s.date)) : '') + '</p>' : '') +
+      parts.filter(function (p) { return p[1]; }).map(function (p) {
+        return '<p><b>' + p[0] + ':</b> ' + esc(p[1]) + '</p>';
+      }).join('') +
+      '<p class="muted">Written by AI from the company’s earnings release. It can make mistakes; check key numbers in the ' +
+      (s.url ? '<a href="' + esc(s.url) + '" target="_blank" rel="noopener">original release</a>' : 'original release') + '.</p></div>';
+  }
+
   function debtSection(d) {
     var yrs = function (y) { return y == null ? '—' : y.toFixed(1) + ' years'; };
     var ok = function (y) {
@@ -653,7 +668,9 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     var s = loadSizing();
     var sized = sizeSignals(DATA.companies.filter(function (x) { return x.signal; }), s)[c.ticker];
     var status;
-    if (c.signal) status = '<span class="pill good">Pre-buy watch · ' + pct(c.discount) + ' below value</span>';
+    if (c.signal) status = '<span class="pill good">Pre-buy watch · ' + pct(c.discount) + ' below value</span>' +
+      (c.conservative ? ' <span class="pill good">Passes conservative checks</span>'
+        : (c.conservative_fails && c.conservative_fails.length ? '<p class="muted" style="margin:6px 0 0">Doesn’t pass the conservative checks: ' + esc(c.conservative_fails.join(', ')) + '.</p>' : ''));
     else if (c.to_buy_price != null) status = '<span class="pill">Watching · needs a ' + pct(c.to_buy_price) + ' drop to reach the pre-buy watch</span>';
     else if (c.status === "FAIL") status = '<span class="pill bad">Didn’t pass the quality screen</span>';
     else if (c.status === "NO_DATA") status = '<span class="pill">Not judged: too little history</span>';
@@ -733,6 +750,7 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
         '<p class="muted">Buy below = base value minus the ' + pct(DATA.settings.margin) + ' margin of safety.</p></div>';
     }
 
+    if (c.ai_summary) h += aiSection(c.ai_summary);
     if (c.debt_check) h += debtSection(c.debt_check);
     if (c.quarterly) h += quarterlySection(c);
 
@@ -843,6 +861,7 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     };
     h += block("Every pick (" + all.n + ")", all);
     if (mine.n) h += block("Picks you hold (" + mine.n + ")", mine);
+    h += groupTable(es, T.summary || {});
 
     h += '<h2>All recorded picks</h2>';
     if (!es.length) {
@@ -869,9 +888,36 @@ footer { margin-top: 32px; font-size: 12.5px; color: var(--text-3); }
     var b = document.getElementById("csvBtn");
     if (b) b.addEventListener("click", function () { downloadCsv(es); });
   }
+  function groupTable(es, S) {
+    var line = function (label, st) {
+      return '<tr><td>' + label + '</td><td>' + (st.n || 0) + '</td><td>' + (st.measured ? signedPct(st.ret) : '—') + '</td><td>' +
+        (st.measured ? signedPct(st.spy) : '—') + '</td><td>' + (st.maxdd != null ? signedPct(st.maxdd) : '—') + '</td></tr>';
+    };
+    var withDD = function (list) {
+      var s = trackStats(list), d = list.filter(function (e) { return e.maxdd != null; });
+      s.maxdd = d.length ? d.reduce(function (a, e) { return a + e.maxdd; }, 0) / d.length : null; return s;
+    };
+    var head = '<tr><th>Group</th><th>Picks</th><th>Return</th><th>S&amp;P</th><th>Dip</th></tr>';
+    var h = '<h2>By group</h2><div class="card tablewrap"><table class="grp">' + head +
+      line('All picks', withDD(es)) +
+      line('Conservative ✓', withDD(es.filter(function (e) { return e.conservative; }))) +
+      line('With warnings', withDD(es.filter(function (e) { return e.warnings && e.warnings.length; }))) +
+      line('No warnings', withDD(es.filter(function (e) { return !(e.warnings && e.warnings.length); }))) +
+      '</table></div><p class="muted">Return and S&amp;P are averages over each pick’s own dates. Dip = the average biggest fall from a high after the start date. Over years, this shows whether the warnings and the conservative checks actually separate better picks from worse ones.</p>';
+    var sh = S.shadow || {};
+    var keys = Object.keys(sh);
+    if (keys.length) {
+      h += '<h2>Experiment: other starting cash flows</h2><div class="card tablewrap"><table class="grp">' +
+        head.replace('Group', 'Rule') + line('Live: 5-yr typical', withDD(es)) +
+        keys.map(function (k) { return line(esc(sh[k].label), sh[k]); }).join('') + '</table></div>' +
+        '<p class="muted">Recorded quietly alongside the live model, so the starting-cash-flow rule can be chosen on evidence after the trial. These rules don’t affect the pre-buy watch.</p>';
+    }
+    return h;
+  }
+
   function downloadCsv(es) {
     var cols = ["ticker","name","sector","start","active","ended","price","value","value_low","value_high",
-                "buy_below","discount","terminal_share","growth","verify","suspicious","warnings","ret","spy","vtv","as_of","model","code"];
+                "buy_below","discount","terminal_share","growth","verify","suspicious","conservative","warnings","ret","spy","vtv","maxdd","as_of","model","code"];
     var q = function (v) { v = Array.isArray(v) ? v.join("; ") : (v == null ? "" : String(v)); return '"' + v.replace(/"/g, '""') + '"'; };
     var csv = cols.join(",") + "\n" + es.map(function (e) { return cols.map(function (k) { return q(e[k]); }).join(","); }).join("\n");
     var a = document.createElement("a");

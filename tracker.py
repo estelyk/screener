@@ -71,7 +71,8 @@ def record(ledger: dict, valuations: list[dict], day: str, model: str, code: str
             "terminal_share": v.get("terminal_share"), "growth": v.get("growth"),
             "warnings": v.get("warnings") or [], "verify": bool(v.get("verify")),
             "suspicious": bool(v.get("suspicious")), "model": model, "code": code,
-            "ret": None, "spy": None, "vtv": None, "as_of": None,
+            "conservative": bool(v.get("conservative")),
+            "ret": None, "spy": None, "vtv": None, "as_of": None, "maxdd": None,
         })
         added += 1
     for t, e in latest.items():
@@ -94,10 +95,41 @@ def _ratio(series, start: str):
     return float(s.iloc[-1]) / base - 1, s.index[-1].strftime("%Y-%m-%d")
 
 
+def _maxdd(series, start: str):
+    """Worst fall from a high since the signal day (e.g. -0.18 = fell 18% at worst)."""
+    s = series.dropna()
+    before = s[s.index <= start]
+    if not len(before):
+        return None
+    path = s[s.index >= before.index[-1]]
+    return float((path / path.cummax() - 1).min())
+
+
+SHADOW_MODELS = {
+    "min": "Lower of normal & last yr",
+    "blend": "Avg of normal & last yr",
+    "recent3": "Avg of last 3 yrs",
+}
+
+
+def all_entries(ledger: dict) -> list[dict]:
+    return ledger["entries"] + [e for es in (ledger.get("shadow") or {}).values() for e in es]
+
+
+def record_shadow(ledger: dict, valuations: list[dict], day: str, model: str, code: str = "") -> None:
+    """Record what each shadow model would have flagged, in its own list."""
+    shadow = ledger.setdefault("shadow", {})
+    for k in SHADOW_MODELS:
+        sub = {"entries": shadow.setdefault(k, [])}
+        rows = [dict(v, signal=bool((v.get("shadow_signals") or {}).get(k)),
+                     value_per_share=(v.get("shadow") or {}).get(k)) for v in valuations]
+        record(sub, rows, day, f"{model} shadow:{k}", code)
+
+
 def update_returns(ledger: dict, history=None) -> None:
     """history: {symbol: pandas Series of adjusted closes indexed by date}. Fetched
     from Yahoo when not given. Entries with no new data keep their last return."""
-    entries = ledger["entries"]
+    entries = all_entries(ledger)
     if not entries:
         return
     if history is None:
@@ -109,6 +141,7 @@ def update_returns(ledger: dict, history=None) -> None:
         if r is None:
             continue
         e["ret"], e["as_of"] = r, as_of
+        e["maxdd"] = _maxdd(history[sym], e["start"])
         for b in BENCHMARKS:
             if b in history:
                 br, _ = _ratio(history[b][history[b].index <= as_of], e["start"])
@@ -140,12 +173,18 @@ def summary(ledger: dict, holdings: list[str] | None = None) -> dict:
         return {"n": len(es), "measured": len(done), "ret": avg("ret"), "spy": avg("spy"),
                 "vtv": avg("vtv"),
                 "beat_spy": sum(1 for e in done if e.get("spy") is not None and e["ret"] > e["spy"]),
+                "maxdd": avg("maxdd") if any(e.get("maxdd") is not None for e in done) else None,
                 "days": sum((date.fromisoformat(e["as_of"]) - date.fromisoformat(e["start"])).days
                             for e in done) / len(done)}
     held = set(holdings or [])
     es = ledger["entries"]
+    shadow = ledger.get("shadow") or {}
     return {"started": ledger["started"], "updated": ledger["updated"],
             "all": group(es), "held": group([e for e in es if e["ticker"] in held]),
+            "conservative": group([e for e in es if e.get("conservative")]),
+            "warned": group([e for e in es if e.get("warnings")]),
+            "clean": group([e for e in es if not e.get("warnings")]),
+            "shadow": {k: dict(group(shadow.get(k, [])), label=SHADOW_MODELS[k]) for k in SHADOW_MODELS},
             "model": C.MODEL_VERSION}
 
 
@@ -220,6 +259,7 @@ def run(valuations: list[dict], holdings: list[str] | None = None, history=None)
     ledger = load(passphrase)
     added = record(ledger, valuations, today_et(), C.MODEL_VERSION,
                    (os.environ.get("GITHUB_SHA") or "")[:7])
+    record_shadow(ledger, valuations, today_et(), C.MODEL_VERSION)
     try:
         update_returns(ledger, history)
     except Exception as e:                                 # prices are best-effort here

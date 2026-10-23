@@ -21,7 +21,7 @@ from valuation import price_check, value_company
 
 OUT = Path("output")
 FIELDS = ["ticker", "name", "sector", "signal", "price", "value_per_share", "value_low",
-          "value_high", "value_no_recovery", "last_fcf", "zscore", "terminal_share", "buy_below",
+          "value_high", "value_no_recovery", "last_fcf", "zscore", "conservative", "terminal_share", "buy_below",
           "discount", "to_buy_price", "growth", "normalized_fcf", "net_debt", "shares",
           "verify", "suspicious", "warnings", "value_note"]
 
@@ -42,6 +42,27 @@ def split_factor(splits: list[tuple[str, float]], since: str | None) -> float:
         if since is None or day > since:
             f *= ratio
     return f
+
+
+def conservative_checks(r: dict) -> tuple[bool, list[str]]:
+    """A pre-buy stock 'passes the conservative checks' when it is still cheap under the
+    cautious and no-recovery values, the business isn't weakening, and nothing is flagged.
+    Shown as a badge only; it does not change the pre-buy watch."""
+    if not r.get("signal"):
+        return False, []
+    fails, p = [], r.get("price")
+    if r.get("value_low") and p > r["value_low"]:
+        fails.append("not cheap in the cautious case")
+    if r.get("value_no_recovery") and p > r["value_no_recovery"]:
+        fails.append("price above the no-recovery value")
+    f = r.get("fscore")
+    if f and f["score"] / f["out_of"] < 5 / 9:
+        fails.append(f"F-score {f['score']} of {f['out_of']}")
+    if r.get("warnings"):
+        fails.append(f"{len(r['warnings'])} warning(s)")
+    if r.get("suspicious") or r.get("verify"):
+        fails.append("data needs checking")
+    return not fails, fails
 
 
 def build(companies: list[dict], prices: dict[str, float],
@@ -72,9 +93,13 @@ def build(companies: list[dict], prices: dict[str, float],
         if qw:
             v["warnings"] = v["warnings"] + qw
         verify = "; ".join(n for n in c.get("notes", []) if n.startswith("VERIFY"))
-        results.append({"ticker": c["ticker"], "name": c["name"], "sector": c["sector"],
-                        "price": price, "verify": verify, **v,
-                        **price_check(v["value_per_share"], price)})
+        row = {"ticker": c["ticker"], "name": c["name"], "sector": c["sector"],
+               "price": price, "verify": verify, **v,
+               **price_check(v["value_per_share"], price)}
+        row["shadow_signals"] = {k: bool(price and sv and price <= (1 - C.MARGIN_OF_SAFETY) * sv)
+                                 for k, sv in (v.get("shadow") or {}).items()}
+        row["conservative"], row["conservative_fails"] = conservative_checks(row)
+        results.append(row)
 
     # Signals first (biggest discount first), then closest to their buy price.
     def rank(r):
@@ -168,7 +193,14 @@ def main() -> None:
                          if not r["signal"] and r["to_buy_price"] is not None][:C.WATCHLIST_SIZE]
             screened = [json.loads(p.read_text()) for p in sorted((OUT / "companies").glob("*.json"))]
             print(f"\nFetching filing links and company descriptions...")
-            profiles = build_profiles(EdgarClient(ua, keep_tags=ALL_TAGS), screened, priority)
+            client = EdgarClient(ua, keep_tags=ALL_TAGS)
+            profiles = build_profiles(client, screened, priority)
+            # AI summaries of the latest earnings release: pre-buy watch + your holdings.
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                from summaries import add_summaries
+                wanted = [r["ticker"] for r in results if r["signal"]] + parse_holdings(os.environ.get("HOLDINGS"))
+                n = add_summaries(client, profiles, wanted)
+                print(f"Earnings summaries: {n} new.")
             (OUT / "profiles.json").write_text(json.dumps(profiles))
         except Exception as e:
             print(f"(Skipped profiles: {type(e).__name__}: {e})")

@@ -196,6 +196,11 @@ def warnings(rows: list[dict]) -> list[str]:
     if dc and dc["years_loans"] is not None and dc["years_loans"] > dc["limit"] and dc["short_term"]:
         out.append(f"with short-term borrowings included, debt is {dc['years_loans']:.1f} years of "
                    f"profit (limit {dc['limit']:g}); see the debt check")
+    nm = sum(1 for r in rows if r.get("roic_nm"))
+    roe_distorted = any(r.get("roe") is None or (r.get("roe") or 0) > 1.0 for r in rows if r.get("net_income") is not None)
+    if roe_distorted and nm >= 3:
+        out.append(f"return on capital isn't meaningful in {nm} of {len(rows)} years (very small capital base "
+                   "after buybacks), so the returns test may overstate quality")
     fw = f_warning(fscore(rows))
     if fw:
         out.append(fw)
@@ -241,7 +246,7 @@ def value_company(rows: list[dict], split_factor: float = 1.0) -> dict:
     out = {"value_per_share": None, "value_low": None, "value_high": None, "long_run_growth": None,
            "value_no_recovery": None, "last_fcf": None, "last_growth": None,
            "fscore": fscore(rows), "zscore": None, "cash_drop": cash_drop(rows),
-           "debt_check": debt_check(rows),
+           "debt_check": debt_check(rows), "shadow": {},
            "terminal_share": None, "growth": None, "normalized_fcf": None,
            "net_debt": None, "shares": None, "value_note": "", "warnings": warnings(rows)}
     fcf0 = normalized_fcf(rows)
@@ -284,6 +289,17 @@ def value_company(rows: list[dict], split_factor: float = 1.0) -> dict:
     if last is not None and last > 0 and last < fcf0:
         g_low = max(C.MIN_GROWTH, min(growth, g1 if g1 is not None else growth, C.MAX_GROWTH))
         out["value_no_recovery"] = dcf(last, g_low, trend=trend) / shares
+
+    # Shadow models (recorded for the experiment, never used for the pre-buy watch):
+    # three other ways to pick the starting cash flow, same growth and discounting.
+    recent = [r.get("owner_fcf") for r in rows[-3:] if r.get("owner_fcf") is not None]
+    starts = {
+        "min": min(fcf0, last) if last is not None else None,
+        "blend": (fcf0 + last) / 2 if last is not None else None,
+        "recent3": sum(recent) / len(recent) if len(recent) == 3 else None,
+    }
+    out["shadow"] = {k: (dcf(f, growth, trend=trend) / shares if f is not None and f > 0 else None)
+                     for k, f in starts.items()}
     if split_factor != 1.0:
         out["value_note"] += f"; shares adjusted for a {split_factor:g}-for-1 split"
     return out
