@@ -257,7 +257,7 @@ def test_workflows_wired(monkeypatch):
     assert "smallcap-site-" in daily and "smallcap-site-" in weekly
     # the small-cap steps in the daily job must never block the main page
     block = daily.split("Get latest small-cap page")[1].split("configure-pages")[0]
-    assert block.count("continue-on-error: true") == 2
+    assert block.count("continue-on-error: true") == block.count("- name:") + 1 == 3
     assert '"locked":1' in weekly
 
 
@@ -272,6 +272,8 @@ def test_runner_keeps_last_page_when_run_is_nearly_empty(monkeypatch, tmp_path):
     monkeypatch.setattr(run_smallcap, "write_page", write)
     monkeypatch.setattr(run_smallcap.smallcap_tracker, "run", lambda rows: {"started": "x"})
     monkeypatch.setattr(run_smallcap, "descriptions", lambda rows: {})   # no network in tests
+    import smallcap_prices
+    monkeypatch.setattr(smallcap_prices, "run", lambda *a, **k: 0)        # no network in tests
 
     monkeypatch.setattr(run_smallcap.S, "main", lambda argv: ROWS[:2])
     assert run_smallcap.main() == 1 and not site.exists()          # too few: keep last week's page
@@ -439,3 +441,91 @@ def test_company_pages_are_linked():
     t = (ROOT / "smallcap_template.html").read_text()
     assert "function brief" in t and "hashchange" in t and 'href="#">‹ Small-Cap Growth' in t
     assert "function barChart" in t and "Shares outstanding" in t
+
+
+# ---------- price charts ----------
+import numpy as np  # noqa: E402
+import smallcap_prices as P  # noqa: E402
+
+
+def _fake_prices(years=8):
+    days = pd.bdate_range(end="2026-11-13", periods=int(252 * years))
+    daily = pd.Series(np.linspace(2.0, 6.0, len(days)), index=days)
+    tz = "America/New_York"
+    s1 = pd.date_range("2026-11-13 09:30", "2026-11-13 15:55", freq="5min", tz=tz)
+    d1 = pd.Series(np.linspace(5.9, 6.0, len(s1)), index=s1)
+    s5 = pd.date_range("2026-11-09 09:30", "2026-11-13 15:30", freq="30min", tz=tz)
+    d5 = pd.Series(np.linspace(5.8, 6.0, len(s5)), index=s5)
+    return daily, d1, d5
+
+
+def test_price_ranges_like_robinhood():
+    daily, d1, d5 = _fake_prices()
+    r = P.build_ranges(daily, d1, d5)
+    assert list(r) == ["1D", "1W", "1M", "1Y", "5Y", "ALL"]
+    for k, v in r.items():
+        assert len(v["t"]) == len(v["c"]) and len(v["c"]) <= P.MAX_POINTS + 1, k
+        assert v["c"][-1] == 6.0 or k in ("1D", "1W"), k              # ends on the latest close
+    assert r["1D"]["base"] == round(float(daily.iloc[-2]), 3)        # vs the previous close
+    one_month_ago = daily.index[-1] - pd.DateOffset(months=1)
+    assert r["1M"]["base"] == round(float(daily[daily.index <= one_month_ago].iloc[-1]), 3)
+    assert r["ALL"]["c"][0] == 2.0                                   # starts at the beginning
+
+
+def test_short_history_and_missing_intraday():
+    daily, _, _ = _fake_prices(years=0.5)
+    r = P.build_ranges(daily)
+    assert "1D" not in r and "1W" not in r and {"1M", "1Y", "5Y", "ALL"} <= set(r)
+    assert P.build_ranges(pd.Series([], dtype=float)) == {}
+
+
+def test_price_files_locked_and_unguessable(tmp_path):
+    key = P.page_key("pass words here", "owner/screener")
+    other = P.page_key("different words", "owner/screener")
+    name = P.file_name(key, "rock")
+    assert name.endswith(".enc") and "ROCK" not in name.upper() and name == P.file_name(key, "ROCK")
+    assert name != P.file_name(other, "ROCK")
+    daily, d1, d5 = _fake_prices()
+    n = P.write({"ROCK": P.build_ranges(daily, d1, d5)}, key, tmp_path)
+    f = tmp_path / "px" / name
+    assert n == 1 and f.exists() and "ROCK" not in f.read_text() and "6.0" not in f.read_text()
+    assert P.unseal(f.read_text(), key)["ranges"]["1Y"]["c"][-1] == 6.0
+    P.write({"NEWX": {"1M": {"t": [1], "c": [1.0], "base": None}}}, key, tmp_path)
+    assert not f.exists()                                            # old files replaced, not piled up
+
+
+def test_price_refresh_keeps_old_charts_when_yahoo_fails(tmp_path, capsys):
+    (tmp_path / "px").mkdir()
+    (tmp_path / "px" / "old.enc").write_text("x")
+    n = P.run(["AAAX", "BBBX", "CCCX"], "pw", "l", tmp_path, fetcher=lambda ts: {})
+    assert n == 0 and (tmp_path / "px" / "old.enc").exists()
+    assert "AAAX" not in capsys.readouterr().out                     # logs are public
+
+
+def test_price_refresh_reads_tickers_from_locked_page(monkeypatch, tmp_path):
+    monkeypatch.chdir(ROOT)
+    d = run_smallcap.page_data(ROWS, "Nov 15, 2026", 20e6, 500e6)
+    (tmp_path / "index.html").write_text(run_smallcap.render(d, "pw words", "owner/screener"))
+    assert P.tickers_from_page(tmp_path, "pw words") == ["ROCK", "DUDX"]
+
+
+def test_page_and_workflow_wired_for_charts():
+    t = (ROOT / "smallcap_template.html").read_text()
+    assert "function loadPrices" in t and "function priceChart" in t and 'crypto.subtle.digest("SHA-256"' in t
+    for r in ("1D", "1W", "1M", "1Y", "5Y", "ALL"):
+        assert '"' + r + '"' in t
+    daily = (ROOT / ".github/workflows/daily.yml").read_text()
+    step = daily.split("Refresh small-cap price charts")[1].split("- name:")[0]
+    assert "continue-on-error: true" in step and "timeout-minutes" in step and "smallcap_prices.py" in step
+
+
+def test_daily_refresh_rebuilds_page_with_current_design(monkeypatch, tmp_path):
+    monkeypatch.chdir(ROOT)
+    d = run_smallcap.page_data(ROWS, "Nov 15, 2026", 20e6, 500e6)
+    old = run_smallcap.render(d, "pw words", "owner/screener").replace("function priceChart", "function oldDesign")
+    (tmp_path / "index.html").write_text(old)
+    P.rebuild_page(tmp_path, "pw words", "owner/screener")
+    new = (tmp_path / "index.html").read_text()
+    assert "function priceChart" in new and "oldDesign" not in new
+    assert P.tickers_from_page(tmp_path, "pw words") == ["ROCK", "DUDX"]   # same data, still locked
+    assert "ROCK" not in new

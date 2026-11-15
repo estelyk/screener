@@ -151,6 +151,13 @@ def main() -> int:
     data["tracking"] = smallcap_tracker.run(rows)
     path = write_page(data)
     print(f"Wrote {path} ({len(data['companies'])} companies)")
+    try:  # price charts are best-effort; the daily job refreshes them on weekdays
+        import smallcap_prices
+        smallcap_prices.run([c["ticker"] for c in data["companies"]],
+                            os.environ.get("PAGE_PASSPHRASE") or None,
+                            os.environ.get("PAGE_SALT") or "local", SITE)
+    except Exception as e:  # noqa: BLE001
+        print(f"(Price charts not built: {type(e).__name__})")
     return 0
 
 

@@ -93,6 +93,14 @@ jobs:
           key: smallcap-site-${{ github.run_id }}
           restore-keys: smallcap-site-
 
+      # Refresh the Small-Cap Growth price charts (1D…ALL) with today's prices and apply
+      # the current page design to this week's results. Allowed to fail and time-limited:
+      # the previous page and charts are kept if anything goes wrong.
+      - name: Refresh small-cap price charts
+        continue-on-error: true
+        timeout-minutes: 12
+        run: python smallcap_prices.py
+
       - name: Add small-cap page to the site
         continue-on-error: true
         run: |
