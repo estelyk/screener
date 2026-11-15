@@ -121,7 +121,10 @@ def render(data: dict, passphrase: str | None = None, label: str = "local") -> s
     if passphrase:
         from lock import encrypt
         payload = json.dumps(encrypt(payload, passphrase, label), separators=(",", ":"))
-    return TEMPLATE.read_text().replace("/*__DATA__*/", payload.replace("</", "<\\/"))
+    page = TEMPLATE.read_text()
+    chart = Path(__file__).resolve().parent / "price_chart.js"   # price chart, shared with Small-Cap Growth
+    page = page.replace("/*__PRICE_CHART__*/", chart.read_text() if chart.exists() else "")
+    return page.replace("/*__DATA__*/", payload.replace("</", "<\\/"))
 
 
 def write_site(data: dict, site: Path = SITE) -> Path:

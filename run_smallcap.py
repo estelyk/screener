@@ -119,6 +119,7 @@ def render(data: dict, passphrase: str | None = None, label: str = "local") -> s
         from lock import encrypt
         payload = json.dumps(encrypt(payload, passphrase, label), separators=(",", ":"))
     html = TEMPLATE.read_text().replace("/*__STYLE__*/", main_styles())
+    html = html.replace("/*__PRICE_CHART__*/", (Path(__file__).resolve().parent / "price_chart.js").read_text())
     return html.replace("/*__DATA__*/", payload.replace("</", "<\\/"))
 
 

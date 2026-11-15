@@ -83,6 +83,13 @@ jobs:
         run: |
           grep -q '"locked":1' site/index.html || { echo "::error::Page is not encrypted; refusing to publish"; exit 1; }
 
+      # Price charts on the Value Screener briefs (display only; the model never uses them).
+      # Allowed to fail and time-limited, so the page still publishes without charts.
+      - name: Value page price charts
+        continue-on-error: true
+        timeout-minutes: 15
+        run: python smallcap_prices.py --site site --no-rebuild
+
       # Small-cap tab: reuse the latest weekly page (see smallcap.yml). Both steps are
       # allowed to fail, so a small-cap problem can never stop the main page updating.
       - name: Get latest small-cap page

@@ -510,7 +510,7 @@ def test_price_refresh_reads_tickers_from_locked_page(monkeypatch, tmp_path):
 
 
 def test_page_and_workflow_wired_for_charts():
-    t = (ROOT / "smallcap_template.html").read_text()
+    t = (ROOT / "price_chart.js").read_text()
     assert "function loadPrices" in t and "function priceChart" in t and 'crypto.subtle.digest("SHA-256"' in t
     for r in ("1D", "1W", "1M", "1Y", "5Y", "ALL"):
         assert '"' + r + '"' in t
@@ -529,3 +529,43 @@ def test_daily_refresh_rebuilds_page_with_current_design(monkeypatch, tmp_path):
     assert "function priceChart" in new and "oldDesign" not in new
     assert P.tickers_from_page(tmp_path, "pw words") == ["ROCK", "DUDX"]   # same data, still locked
     assert "ROCK" not in new
+
+
+def test_value_page_gets_the_same_chart(monkeypatch, tmp_path):
+    """The Value Screener page: chart code pasted in, price files keyed like small caps,
+    and its own KEY (My budget settings) left alone."""
+    monkeypatch.chdir(ROOT)
+    import build_site
+    main = build_site.render({"generated": "Nov 16, 2026", "settings": {},
+                              "companies": [{"ticker": "KO", "name": "Coca-Cola"}]}, "pw words", "owner/screener")
+    small = run_smallcap.render(run_smallcap.page_data(ROWS, "Nov 15, 2026", 20e6, 500e6), "pw words", "owner/screener")
+    for page in (main, small):
+        assert "/*__PRICE_CHART__*/" not in page and "function startPriceChart" in page
+        assert page.count("var PAGE_KEY = null") == 1
+    assert 'var KEY = "valueScreener.sizing.v1"' in main                # untouched
+    (tmp_path / "index.html").write_text(main)
+    assert P.tickers_from_page(tmp_path, "pw words") == ["KO"]
+    daily = (ROOT / ".github/workflows/daily.yml").read_text()
+    step = daily.split("Value page price charts")[1].split("- name:")[0]
+    assert "continue-on-error: true" in step and "--site site --no-rebuild" in step
+    # it runs after the main page is built and checked as encrypted, before publishing
+    assert daily.index("Make sure the page is encrypted") < daily.index("Value page price charts") < daily.index("upload-pages-artifact")
+
+
+def test_daily_value_chart_command_end_to_end(monkeypatch, tmp_path):
+    """`python smallcap_prices.py --site site --no-rebuild`: writes one locked file per
+    company and leaves the Value Screener page itself byte-for-byte unchanged."""
+    monkeypatch.chdir(ROOT)
+    import build_site
+    page = build_site.render({"generated": "Nov 16, 2026", "settings": {},
+                              "companies": [{"ticker": t, "name": t} for t in ("KO", "AAPL")]},
+                             "pw words", "owner/screener")
+    (tmp_path / "index.html").write_text(page)
+    monkeypatch.setenv("PAGE_PASSPHRASE", "pw words"); monkeypatch.setenv("PAGE_SALT", "owner/screener")
+    fake = lambda tickers: {t: {"1Y": [[1, 10.0], [2, 11.0]]} for t in tickers}
+    monkeypatch.setattr(P.run, "__defaults__", (P.SITE, fake))
+    assert P.main(["--site", str(tmp_path), "--no-rebuild"]) == 0
+    key = P.page_key("pw words", "owner/screener")
+    files = sorted(p.name for p in (tmp_path / "px").iterdir())
+    assert files == sorted(P.file_name(key, t) for t in ("KO", "AAPL"))
+    assert (tmp_path / "index.html").read_text() == page

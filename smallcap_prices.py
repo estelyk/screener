@@ -1,4 +1,6 @@
-"""Price charts for the Small-Cap Growth company pages (1D, 1W, 1M, 1Y, 5Y, ALL).
+"""Price charts for the company pages (1D, 1W, 1M, 1Y, 5Y, ALL), for both the
+Small-Cap Growth page (smallcap_data/site) and the Value Screener page (site, with
+--site site --no-rebuild). Display only: nothing here feeds the value model.
 
 Writes one small file per company into smallcap_data/site/px/, which is published
 next to the page. On GitHub each file is encrypted with the same key as the page,
@@ -216,18 +218,26 @@ def run(tickers: list[str], passphrase: str | None, label: str, site: Path = SIT
     return n
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="Write locked price-chart files next to a page.")
+    ap.add_argument("--site", default=str(SITE), help="folder with index.html (default: small-cap page)")
+    ap.add_argument("--no-rebuild", action="store_true",
+                    help="don't re-render the page (use for the Value Screener page)")
+    args = ap.parse_args(argv)
+    site = Path(args.site)
     passphrase = os.environ.get("PAGE_PASSPHRASE") or None
     label = os.environ.get("PAGE_SALT") or "local"
-    if not (SITE / "index.html").exists():
-        print("No small-cap page yet; skipping price charts.")
+    if not (site / "index.html").exists():
+        print("No page yet; skipping price charts.")
         return 0
-    try:
-        rebuild_page(SITE, passphrase, label)
-    except Exception as e:  # noqa: BLE001  keep last week's page as it was
-        print(f"(Page design not refreshed: {type(e).__name__})")
-    tickers = tickers_from_page(SITE, passphrase)
-    run(tickers, passphrase, label)
+    if not args.no_rebuild:
+        try:
+            rebuild_page(site, passphrase, label)
+        except Exception as e:  # noqa: BLE001  keep last week's page as it was
+            print(f"(Page design not refreshed: {type(e).__name__})")
+    tickers = tickers_from_page(site, passphrase)
+    run(tickers, passphrase, label, site)
     return 0
 
 
