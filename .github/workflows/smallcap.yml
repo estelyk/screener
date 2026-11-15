@@ -1,0 +1,72 @@
+# Weekly small-cap ("moonshot") screen. Builds a passphrase-locked page and saves it;
+# the next Daily screen run publishes it at /smallcap/ next to the Value Screener page.
+# Separate from the daily job (which has a 40-minute limit) and never touches the value
+# model's data. Logs are public on a public repo, so the script prints counts only.
+name: Weekly small-cap screen
+
+on:
+  schedule:
+    - cron: "23 19 * * 0"   # Sundays 19:23 UTC = 3:23pm ET in summer, 2:23pm ET in winter
+  workflow_dispatch:         # adds a "Run workflow" button for manual runs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smallcap-screen
+  cancel-in-progress: false
+
+jobs:
+  smallcap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330     # first run downloads a lot; later runs are faster
+    env:
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      PAGE_PASSPHRASE: ${{ secrets.PAGE_PASSPHRASE }}
+      PAGE_SALT: ${{ github.repository }}   # same salt as the main page: one unlock opens both
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Check secrets are set
+        run: |
+          [ -n "$SEC_USER_AGENT" ] || { echo "::error::Missing secret SEC_USER_AGENT"; exit 1; }
+          [ -n "$PAGE_PASSPHRASE" ] || { echo "::error::Missing secret PAGE_PASSPHRASE"; exit 1; }
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Tests
+        run: python -m pytest -q tests/test_smallcap.py
+
+      - name: Restore saved small-cap data
+        uses: actions/cache/restore@v5
+        with:
+          path: smallcap_data/cache
+          key: smallcap-data-${{ github.run_id }}
+          restore-keys: smallcap-data-
+
+      - name: Small-cap screen
+        run: python run_smallcap.py
+
+      - name: Save small-cap data for next week
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: smallcap_data/cache
+          key: smallcap-data-${{ github.run_id }}
+
+      - name: Make sure the page is encrypted
+        run: |
+          grep -q '"locked":1' smallcap_data/site/index.html || { echo "::error::Page is not encrypted; refusing to save it"; exit 1; }
+
+      # The daily job picks this up and publishes it (see daily.yml).
+      - name: Save the page for the daily publish
+        uses: actions/cache/save@v5
+        with:
+          path: smallcap_data/site
+          key: smallcap-site-${{ github.run_id }}

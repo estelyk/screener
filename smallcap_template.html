@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Small caps</title>
+<meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Screener">
+<link rel="apple-touch-icon" href="../icon-180.png">
+<link rel="icon" href="../icon-180.png">
+<!-- Styles are copied from site_template.html at build time so both pages match. -->
+<style>/*__STYLE__*/</style>
+<style>
+.scard { display: block; }
+.scard + .scard { margin-top: 10px; }
+.score { font-weight: 700; white-space: nowrap; }
+.score.hi { color: var(--good-ink); }
+.flag { font-size: 12.5px; line-height: 1.3; padding: 5px 10px; border-radius: 10px;
+        background: rgba(208,59,59,.12); color: var(--text); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin-top: 10px; font-size: 14px; }
+.grid2 span { color: var(--text-2); }
+.grid2 b { float: right; font-weight: 600; }
+details.co > summary { list-style: none; cursor: pointer; color: var(--text); font-size: 16px; }
+details.co > summary .nm { display: block; font-weight: 400; }
+details.co + details.co { border-top: 1px solid var(--border); }
+details.co > summary.li { border-top: 0; }
+details.co > summary::-webkit-details-marker { display: none; }
+details.co[open] > summary .chev { transform: rotate(90deg); }
+.chev { display: inline-block; transition: transform .15s; }
+.codetail { padding: 0 16px 14px; }
+.rules { font-size: 13.5px; color: var(--text-2); }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script id="data" type="application/json">/*__DATA__*/</script>
+<script>
+(function () {
+  "use strict";
+  var RAW = JSON.parse(document.getElementById("data").textContent);
+  var app = document.getElementById("app");
+  // Same key store as the Value Screener page: one unlock opens both.
+  var KEYSTORE = "valueScreener.key.v1";
+  var DATA = null;
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+  function big(x) {
+    if (x == null) return "—";
+    var a = Math.abs(x), s = x < 0 ? "−$" : "$";
+    if (a >= 1e9) return s + (a / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return s + (a / 1e6).toFixed(a >= 1e8 ? 0 : 1) + "M";
+    if (a >= 1e3) return s + (a / 1e3).toFixed(0) + "K";
+    return s + a.toFixed(0);
+  }
+  function pct(x) { return x == null ? "—" : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(0) + "%"; }
+  function num(x, d) { return x == null ? "—" : x.toFixed(d); }
+  function px(x) { return x == null ? "—" : "$" + x.toFixed(2); }
+
+  // ---------- unlock (same method as the Value Screener page) ----------
+  function b64d(s) { var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+  function b64e(buf) { var u = new Uint8Array(buf), s = ""; for (var i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); }
+  function keyFromPass(pass) {
+    return crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"])
+      .then(function (base) {
+        return crypto.subtle.deriveKey({ name: "PBKDF2", salt: b64d(RAW.salt), iterations: RAW.iter, hash: "SHA-256" },
+          base, { name: "AES-GCM", length: 256 }, true, ["decrypt"]);
+      });
+  }
+  function openWith(key) {
+    return crypto.subtle.decrypt({ name: "AES-GCM", iv: b64d(RAW.iv) }, key, b64d(RAW.ct))
+      .then(function (pt) { return JSON.parse(new TextDecoder().decode(pt)); });
+  }
+  function storedKey() {
+    try {
+      var s = JSON.parse(localStorage.getItem(KEYSTORE));
+      if (!s || s.salt !== RAW.salt) return Promise.reject();
+      return crypto.subtle.importKey("raw", b64d(s.k), "AES-GCM", true, ["decrypt"]);
+    } catch (e) { return Promise.reject(); }
+  }
+  function forgetKey() { try { localStorage.removeItem(KEYSTORE); } catch (e) {} }
+  function lockScreen() {
+    app.innerHTML = '<div style="max-width:380px;margin:12vh auto 0">' +
+      '<h1>Small caps</h1><p class="sub" style="margin-bottom:16px">Enter your passphrase to open this week’s results.</p>' +
+      '<form id="unlock" class="card stack" autocomplete="on">' +
+      '<input type="text" name="username" value="value-screener" autocomplete="username" hidden>' +
+      '<label for="pass" class="muted">Passphrase</label>' +
+      '<input id="pass" type="password" autocomplete="current-password" required ' +
+      'style="width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface-2)">' +
+      '<label class="muted" style="display:flex;gap:8px;align-items:center"><input id="remember" type="checkbox" checked> Remember on this device</label>' +
+      '<button type="submit" class="iconbtn" style="width:100%;padding:11px;background:var(--accent);color:#fff;border:0">Unlock</button>' +
+      '<p id="umsg" class="muted" role="status"></p></form></div>';
+    var form = document.getElementById("unlock"), um = document.getElementById("umsg");
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      um.textContent = "Unlocking…";
+      var remember = document.getElementById("remember").checked, key;
+      keyFromPass(document.getElementById("pass").value)
+        .then(function (k) { key = k; return openWith(k); })
+        .then(function (d) {
+          if (remember) {
+            crypto.subtle.exportKey("raw", key).then(function (raw) {
+              try { localStorage.setItem(KEYSTORE, JSON.stringify({ salt: RAW.salt, k: b64e(raw) })); } catch (e) {}
+            });
+          }
+          boot(d);
+        })
+        .catch(function () { um.textContent = "That passphrase didn’t work. Try again."; });
+    });
+  }
+
+  // ---------- page ----------
+  var LABEL = {
+    PASS: "Passed: no red flags, scored 5+, revenue growing over 20%",
+    WEAK: "No red flags, but low score or slow growth",
+    CHECK: "Recent spin-off/sale or a big price drop — the last annual report may not match today’s company",
+    FAIL: "Failed a red flag"
+  };
+
+  function detail(c) {
+    var h = '<div class="grid2">' +
+      '<div><span>Revenue</span> <b>' + big(c.revenue) + '</b></div>' +
+      '<div><span>Growth</span> <b>' + pct(c.rev_growth_pct) + '</b></div>' +
+      '<div><span>Profit</span> <b>' + big(c.net_income) + '</b></div>' +
+      '<div><span>Cash flow</span> <b>' + big(c.ocf) + '</b></div>' +
+      '<div><span>Cash</span> <b>' + big(c.cash) + '</b></div>' +
+      '<div><span>Runway</span> <b>' + (c.runway_months == null ? "—" : num(c.runway_months, 0) + " mo") + '</b></div>' +
+      '<div><span>Debt/equity</span> <b>' + num(c.debt_to_equity, 2) + '</b></div>' +
+      '<div><span>Shares, ~3y</span> <b>' + pct(c.share_change_pct) + '</b></div>' +
+      '<div><span>Insiders bought</span> <b>' + big(c.insider_buys) + '</b></div>' +
+      '<div><span>Insiders sold</span> <b>' + big(c.insider_sells) + '</b></div>' +
+      '</div>';
+    var chips = (c.flags || []).map(function (f) { return '<span class="flag">' + esc(f) + '</span>'; })
+      .concat((c.notes || []).map(function (n) { return '<span class="chip">' + esc(n) + '</span>'; }));
+    if (chips.length) h += '<div class="chips">' + chips.join('') + '</div>';
+    if (c.tenk_url) h += '<p style="margin-top:10px;font-size:14px"><a href="' + esc(c.tenk_url) +
+      '" target="_blank" rel="noopener">Latest annual report (10-K) ›</a></p>';
+    return h;
+  }
+
+  function card(c) {
+    return '<div class="card scard"><div class="sig"><div class="row1"><div style="min-width:0">' +
+      '<span class="tk">' + esc(c.ticker) + '</span> <span class="nm">' + esc(c.name) + '</span></div>' +
+      '<span class="score hi">' + c.score + '/10</span></div>' +
+      '<div class="nums"><span>Price <b>' + px(c.price) + '</b></span><span>Company size <b>' + big(c.market_cap) +
+      '</b></span></div>' + detail(c) + '</div></div>';
+  }
+
+  function row(c) {
+    return '<details class="co"><summary class="li"><div class="l"><div>' + esc(c.ticker) + '</div>' +
+      '<span class="nm">' + esc(c.name) + '</span>' +
+      '<div class="muted">' + esc((c.flags && c.flags[0]) || (c.notes && c.notes[0]) || "") + '</div></div>' +
+      '<div class="r"><div>' + c.score + '/10</div><div>' + px(c.price) + ' · ' + big(c.market_cap) + '</div></div>' +
+      '<span class="chev">›</span></summary><div class="codetail">' + detail(c) + '</div></details>';
+  }
+
+  function section(status, list, open) {
+    if (!list.length) return '';
+    var body = status === "PASS" ? list.map(card).join('')
+                                 : '<div class="list">' + list.map(row).join('') + '</div>';
+    return '<details class="tbl"' + (open ? ' open' : '') + ' style="margin-top:22px"><summary><b>' + status +
+      '</b> · ' + list.length + '</summary><p class="muted" style="margin:6px 0 10px">' + esc(LABEL[status]) +
+      '</p>' + body + '</details>';
+  }
+
+  function render(q) {
+    var by = { PASS: [], WEAK: [], CHECK: [], FAIL: [] };
+    var ql = (q || "").trim().toLowerCase();
+    DATA.companies.forEach(function (c) {
+      if (ql && c.ticker.toLowerCase().indexOf(ql) !== 0 && c.name.toLowerCase().indexOf(ql) < 0) return;
+      (by[c.status] || (by[c.status] = [])).push(c);
+    });
+    var h = '';
+    ["PASS", "WEAK", "CHECK", "FAIL"].forEach(function (s) { h += section(s, by[s] || [], s === "PASS" || !!ql); });
+    if (!h) h = '<p class="empty" style="margin-top:16px">No matches in this week’s screen.</p>';
+    document.getElementById("body").innerHTML = h;
+  }
+
+  function boot(d) {
+    DATA = d;
+    var n = DATA.counts || {};
+    var h = '<a class="back" href="../">‹ Value Screener</a>' +
+      '<div class="top"><div><h1>Small caps</h1><p class="sub">Updated ' + esc(DATA.generated) +
+      ' · ' + esc(DATA.scope) + '</p></div></div>' +
+      '<div class="summary">' +
+      ['PASS', 'WEAK', 'CHECK', 'FAIL'].map(function (s) {
+        return '<div class="stat"><b>' + (n[s] || 0) + '</b><span>' + s.charAt(0) + s.slice(1).toLowerCase() + '</span></div>';
+      }).join('') + '</div>' +
+      '<div class="searchbar"><input type="search" id="q" placeholder="Search this week’s small caps" ' +
+      'autocomplete="off" autocorrect="off" spellcheck="false"></div><div id="body"></div>' +
+      '<details class="tbl" style="margin-top:28px"><summary>How this screen works</summary>' +
+      '<p class="rules" style="margin-top:8px">' + esc(DATA.rules) + '</p></details>' +
+      '<footer>High-risk screen, not investment advice: most small companies lose money for shareholders. ' +
+      'Financials from SEC filings; prices from Yahoo, as of the last close before ' + esc(DATA.generated) + '. ' +
+      'Updated weekly. <a href="#" id="lockBtn">Lock this device</a></footer>';
+    app.innerHTML = h;
+    render("");
+    document.getElementById("q").addEventListener("input", function (e) { render(e.target.value); });
+    document.getElementById("lockBtn").addEventListener("click", function (e) {
+      e.preventDefault(); forgetKey(); location.reload();
+    });
+  }
+
+  if (!RAW.locked) { boot(RAW); return; }
+  if (!window.crypto || !crypto.subtle) {
+    app.innerHTML = '<p class="card" style="margin-top:20vh">This page needs a secure (https) connection to unlock.</p>';
+    return;
+  }
+  // Don't erase the shared key here on failure: that would also lock the main page.
+  storedKey().then(openWith).then(boot).catch(function () { lockScreen(); });
+})();
+</script>
+</body>
+</html>

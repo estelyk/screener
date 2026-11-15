@@ -83,6 +83,26 @@ jobs:
         run: |
           grep -q '"locked":1' site/index.html || { echo "::error::Page is not encrypted; refusing to publish"; exit 1; }
 
+      # Small-cap tab: reuse the latest weekly page (see smallcap.yml). Both steps are
+      # allowed to fail, so a small-cap problem can never stop the main page updating.
+      - name: Get latest small-cap page
+        continue-on-error: true
+        uses: actions/cache/restore@v5
+        with:
+          path: smallcap_data/site
+          key: smallcap-site-${{ github.run_id }}
+          restore-keys: smallcap-site-
+
+      - name: Add small-cap page to the site
+        continue-on-error: true
+        run: |
+          if [ -f smallcap_data/site/index.html ] && grep -q '"locked":1' smallcap_data/site/index.html; then
+            mkdir -p site/smallcap && cp smallcap_data/site/index.html site/smallcap/index.html
+            echo "Added small-cap page"
+          else
+            echo "No locked small-cap page yet; skipping"
+          fi
+
       - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v5
