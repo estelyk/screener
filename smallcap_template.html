@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Small caps</title>
+<title>Small-Cap Growth</title>
 <meta name="theme-color" content="#fcfcfb" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,15 +23,32 @@
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin-top: 10px; font-size: 14px; }
 .grid2 span { color: var(--text-2); }
 .grid2 b { float: right; font-weight: 600; }
-details.co > summary { list-style: none; cursor: pointer; color: var(--text); font-size: 16px; }
-details.co > summary .nm { display: block; font-weight: 400; }
-details.co + details.co { border-top: 1px solid var(--border); }
-details.co > summary.li { border-top: 0; }
-details.co > summary::-webkit-details-marker { display: none; }
-details.co[open] > summary .chev { transform: rotate(90deg); }
 .chev { display: inline-block; transition: transform .15s; }
-.codetail { padding: 0 16px 14px; }
 .rules { font-size: 13.5px; color: var(--text-2); }
+.failtag { font-size: 12.5px; font-weight: 650; color: var(--crit); }
+.li .l .nm { display: block; }
+a.scard { text-decoration: none; color: inherit; }
+.scard .chev { margin-left: 4px; }
+.scard .nums + .nums { margin-top: 2px; }
+.scard .nums { flex-wrap: wrap; column-gap: 14px; row-gap: 2px; }
+.scard .nums span { white-space: nowrap; }
+.pts li { padding-left: 34px; }
+.pts li::before, .pts li.na::before, .pts li.fail::before { content: none; }
+.pts .ptsv { position: absolute; left: 0; top: 7px; width: 28px; text-align: center; font-weight: 700; color: var(--good-ink); }
+.pts li.na .ptsv { color: var(--text-3); }
+.pts li.fail .ptsv { color: var(--crit); }
+.chart .ro { color: var(--text-2); }
+.pxbig { font-size: 22px; font-weight: 700; line-height: 1.1; text-align: right; white-space: nowrap; }
+.pxsub { font-size: 13px; color: var(--text-2); text-align: right; margin-top: 3px; white-space: nowrap; }
+.pxsub .score { font-size: 13px; }
+.li .r .pxrow { font-size: 17px; font-weight: 700; color: var(--text); }
+.pxhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.pxhead b { font-size: 34px; line-height: 1.1; letter-spacing: -0.01em; }
+.pxhead span { color: var(--text-2); font-size: 13.5px; }
+.tr .big { font-size: 22px; font-weight: 700; }
+.tr .vs { color: var(--text-2); font-size: 14px; }
+.pos { color: var(--good-ink); }
+.neg { color: var(--crit); }
 </style>
 </head>
 <body>
@@ -87,7 +104,7 @@ details.co[open] > summary .chev { transform: rotate(90deg); }
   function forgetKey() { try { localStorage.removeItem(KEYSTORE); } catch (e) {} }
   function lockScreen() {
     app.innerHTML = '<div style="max-width:380px;margin:12vh auto 0">' +
-      '<h1>Small caps</h1><p class="sub" style="margin-bottom:16px">Enter your passphrase to open this week’s results.</p>' +
+      '<h1>Small-Cap Growth</h1><p class="sub" style="margin-bottom:16px">Enter your passphrase to open this week’s results.</p>' +
       '<form id="unlock" class="card stack" autocomplete="on">' +
       '<input type="text" name="username" value="value-screener" autocomplete="username" hidden>' +
       '<label for="pass" class="muted">Passphrase</label>' +
@@ -122,50 +139,38 @@ details.co[open] > summary .chev { transform: rotate(90deg); }
     CHECK: "Recent spin-off/sale or a big price drop — the last annual report may not match today’s company",
     FAIL: "Failed a red flag"
   };
+  var BY = {}, homeScroll = 0, lastQuery = "", openSec = { PASS: true };
 
-  function detail(c) {
-    var h = '<div class="grid2">' +
-      '<div><span>Revenue</span> <b>' + big(c.revenue) + '</b></div>' +
-      '<div><span>Growth</span> <b>' + pct(c.rev_growth_pct) + '</b></div>' +
-      '<div><span>Profit</span> <b>' + big(c.net_income) + '</b></div>' +
-      '<div><span>Cash flow</span> <b>' + big(c.ocf) + '</b></div>' +
-      '<div><span>Cash</span> <b>' + big(c.cash) + '</b></div>' +
-      '<div><span>Runway</span> <b>' + (c.runway_months == null ? "—" : num(c.runway_months, 0) + " mo") + '</b></div>' +
-      '<div><span>Debt/equity</span> <b>' + num(c.debt_to_equity, 2) + '</b></div>' +
-      '<div><span>Shares, ~3y</span> <b>' + pct(c.share_change_pct) + '</b></div>' +
-      '<div><span>Insiders bought</span> <b>' + big(c.insider_buys) + '</b></div>' +
-      '<div><span>Insiders sold</span> <b>' + big(c.insider_sells) + '</b></div>' +
-      '</div>';
-    var chips = (c.flags || []).map(function (f) { return '<span class="flag">' + esc(f) + '</span>'; })
-      .concat((c.notes || []).map(function (n) { return '<span class="chip">' + esc(n) + '</span>'; }));
-    if (chips.length) h += '<div class="chips">' + chips.join('') + '</div>';
-    if (c.tenk_url) h += '<p style="margin-top:10px;font-size:14px"><a href="' + esc(c.tenk_url) +
-      '" target="_blank" rel="noopener">Latest annual report (10-K) ›</a></p>';
-    return h;
-  }
+  function link(c) { return "#/" + encodeURIComponent(c.ticker); }
+  function statusText(c) { return c.status === "FAIL" ? '<span class="failtag">FAIL</span>' : c.score + '/10'; }
+  function firstNote(c) { return (c.flags && c.flags[0]) || (c.notes && c.notes[0]) || ""; }
 
   function card(c) {
-    return '<div class="card scard"><div class="sig"><div class="row1"><div style="min-width:0">' +
+    var chips = (c.notes || []).map(function (n) { return '<span class="chip">' + esc(n) + '</span>'; });
+    return '<a class="card scard sig" href="' + link(c) + '"><div class="row1"><div style="min-width:0">' +
       '<span class="tk">' + esc(c.ticker) + '</span> <span class="nm">' + esc(c.name) + '</span></div>' +
-      '<span class="score hi">' + c.score + '/10</span></div>' +
-      '<div class="nums"><span>Price <b>' + px(c.price) + '</b></span><span>Company size <b>' + big(c.market_cap) +
-      '</b></span></div>' + detail(c) + '</div></div>';
+      '<div><div class="pxbig">' + px(c.price) + ' <span class="chev">›</span></div>' +
+      '<div class="pxsub"><span class="score hi">' + c.score + '/10</span></div></div></div>' +
+      '<div class="nums"><span>Size <b>' + big(c.market_cap) + '</b></span>' +
+      '<span>Growth <b>' + pct(c.rev_growth_pct) + '</b></span><span>Shares, ~3y <b>' + pct(c.share_change_pct) + '</b></span></div>' +
+      '<div class="nums"><span>Revenue <b>' + big(c.revenue) + '</b></span><span>Profit <b>' + big(c.net_income) + '</b></span>' +
+      '<span>Cash flow <b>' + big(c.ocf) + '</b></span></div>' +
+      (chips.length ? '<div class="chips">' + chips.join('') + '</div>' : '') + '</a>';
   }
 
   function row(c) {
-    return '<details class="co"><summary class="li"><div class="l"><div>' + esc(c.ticker) + '</div>' +
-      '<span class="nm">' + esc(c.name) + '</span>' +
-      '<div class="muted">' + esc((c.flags && c.flags[0]) || (c.notes && c.notes[0]) || "") + '</div></div>' +
-      '<div class="r"><div>' + c.score + '/10</div><div>' + px(c.price) + ' · ' + big(c.market_cap) + '</div></div>' +
-      '<span class="chev">›</span></summary><div class="codetail">' + detail(c) + '</div></details>';
+    return '<a class="li" href="' + link(c) + '"><div class="l"><div>' + esc(c.ticker) + '</div>' +
+      '<span class="nm">' + esc(c.name) + '</span><div class="muted">' + esc(firstNote(c)) + '</div></div>' +
+      '<div class="r"><div class="pxrow">' + px(c.price) + '</div><div>' + statusText(c) + ' · ' + big(c.market_cap) + '</div></div>' +
+      '<span class="chev">›</span></a>';
   }
 
   function section(status, list, open) {
     if (!list.length) return '';
     var body = status === "PASS" ? list.map(card).join('')
                                  : '<div class="list">' + list.map(row).join('') + '</div>';
-    return '<details class="tbl"' + (open ? ' open' : '') + ' style="margin-top:22px"><summary><b>' + status +
-      '</b> · ' + list.length + '</summary><p class="muted" style="margin:6px 0 10px">' + esc(LABEL[status]) +
+    return '<details class="tbl sec" data-sec="' + status + '"' + (open ? ' open' : '') + ' style="margin-top:22px"><summary><b>' +
+      status + '</b> · ' + list.length + '</summary><p class="muted" style="margin:6px 0 10px">' + esc(LABEL[status]) +
       '</p>' + body + '</details>';
   }
 
@@ -177,34 +182,282 @@ details.co[open] > summary .chev { transform: rotate(90deg); }
       (by[c.status] || (by[c.status] = [])).push(c);
     });
     var h = '';
-    ["PASS", "WEAK", "CHECK", "FAIL"].forEach(function (s) { h += section(s, by[s] || [], s === "PASS" || !!ql); });
+    ["PASS", "WEAK", "CHECK", "FAIL"].forEach(function (s) { h += section(s, by[s] || [], !!openSec[s] || !!ql); });
     if (!h) h = '<p class="empty" style="margin-top:16px">No matches in this week’s screen.</p>';
-    document.getElementById("body").innerHTML = h;
+    var body = document.getElementById("body");
+    body.innerHTML = h;
+    Array.prototype.forEach.call(body.querySelectorAll("details.sec"), function (d) {
+      d.addEventListener("toggle", function () { if (!ql) openSec[d.getAttribute("data-sec")] = d.open; });
+    });
   }
 
-  function boot(d) {
-    DATA = d;
+  function signed(x) {
+    if (x == null) return "—";
+    var cls = x > 0 ? "pos" : x < 0 ? "neg" : "";
+    return '<span class="' + cls + '">' + pct(x * 100) + '</span>';
+  }
+  function multiple(x) { return x == null ? "—" : (1 + x).toFixed(1) + "×"; }
+
+  function trackRecord(t) {
+    if (!t) return '';
+    var p = t.pass || {}, f = t.fail || {};
+    var head = !p.measured ? 'starts this week'
+      : 'picks ' + pct(p.ret * 100) + ' vs small caps ' + pct((p.bench || 0) * 100);
+    var h = '<details class="tbl" style="margin-top:22px"><summary><b>Track record</b> · ' + esc(head) + '</summary>' +
+      '<p class="muted" style="margin:6px 0 10px">Every stock that first shows up as PASS is “bought” on paper that week ' +
+      'and held from then on, compared with IWM (Russell 2000 small caps) over the same dates. ' +
+      'FAIL stocks are tracked the same way as a control group. Started ' + esc(t.started) + '.</p>';
+    if (!p.measured) {
+      return h + '<p class="card empty">No results yet: picks are recorded this week and measured from next week on. ' +
+        'Give it 6–12 months before reading much into it.</p></details>';
+    }
+    function block(name, g) {
+      if (!g.measured) return '';
+      return '<div class="card tr" style="margin-top:10px"><p><b>' + name + '</b> · ' + g.n + ' stocks, held ' +
+        Math.round(g.days) + ' days on average</p>' +
+        '<p style="margin-top:6px"><span class="big">' + signed(g.ret) + '</span> <span class="vs">average vs ' +
+        signed(g.bench) + ' for small caps over the same dates</span></p>' +
+        '<div class="grid2"><div><span>Beat small caps</span> <b>' + g.beat + ' of ' + g.compared + '</b></div>' +
+        '<div><span>Middle result</span> <b>' + pct(g.median * 100) + '</b></div>' +
+        '<div><span>Best</span> <b>' + multiple(g.best) + '</b></div>' +
+        '<div><span>Worst</span> <b>' + pct(g.worst * 100) + '</b></div>' +
+        '<div><span>Doubled or more</span> <b>' + g.up_2x + '</b></div>' +
+        '<div><span>Lost half or more</span> <b>' + g.down_half + '</b></div></div></div>';
+    }
+    h += block("PASS picks", p) + block("FAIL control group", f);
+    if (p.measured && f.measured) {
+      var edge = p.ret - f.ret;
+      h += '<p class="muted" style="margin-top:10px">' + (edge > 0
+        ? 'So far PASS picks are ahead of FAIL stocks by ' + pct(edge * 100) + ' on average. '
+        : 'So far PASS picks are not ahead of FAIL stocks, so the screen isn’t showing an edge yet. ') +
+        'Small samples swing a lot: one big winner can change everything.</p>';
+    }
+    var rows = (t.picks || []).filter(function (e) { return e.ret != null; });
+    if (rows.length) {
+      h += '<h2>PASS picks, best first</h2><div class="list">' + rows.map(function (e) {
+        var inner = '<div class="l"><div>' + esc(e.ticker) + '</div><span class="nm">' + esc(e.name) +
+          '</span><div class="muted">since ' + esc(e.start) + '</div></div><div class="r"><div>' + signed(e.ret) +
+          '</div><div>small caps ' + pct((e.bench || 0) * 100) + '</div></div>';
+        return BY[e.ticker] ? '<a class="li" href="#/' + encodeURIComponent(e.ticker) + '">' + inner + '<span class="chev">›</span></a>'
+                            : '<div class="li">' + inner + '</div>';
+      }).join('') + '</div>';
+    }
+    return h + '</details>';
+  }
+
+  function footer() {
+    return '<footer>High-risk screen, not investment advice: most small companies lose money for shareholders. ' +
+      'Financials from SEC filings; prices from Yahoo, as of the last close before ' + esc(DATA.generated) + '. ' +
+      'Updated weekly. <a href="#" id="lockBtn">Lock this device</a></footer>';
+  }
+
+  function home() {
     var n = DATA.counts || {};
     var h = '<a class="back" href="../">‹ Value Screener</a>' +
-      '<div class="top"><div><h1>Small caps</h1><p class="sub">Updated ' + esc(DATA.generated) +
+      '<div class="top"><div><h1>Small-Cap Growth</h1><p class="sub">Updated ' + esc(DATA.generated) +
       ' · ' + esc(DATA.scope) + '</p></div></div>' +
       '<div class="summary">' +
       ['PASS', 'WEAK', 'CHECK', 'FAIL'].map(function (s) {
         return '<div class="stat"><b>' + (n[s] || 0) + '</b><span>' + s.charAt(0) + s.slice(1).toLowerCase() + '</span></div>';
       }).join('') + '</div>' +
-      '<div class="searchbar"><input type="search" id="q" placeholder="Search this week’s small caps" ' +
+      '<div class="searchbar"><input type="search" id="q" placeholder="Search this week’s list" ' +
       'autocomplete="off" autocorrect="off" spellcheck="false"></div><div id="body"></div>' +
+      trackRecord(DATA.tracking) +
       '<details class="tbl" style="margin-top:28px"><summary>How this screen works</summary>' +
-      '<p class="rules" style="margin-top:8px">' + esc(DATA.rules) + '</p></details>' +
-      '<footer>High-risk screen, not investment advice: most small companies lose money for shareholders. ' +
-      'Financials from SEC filings; prices from Yahoo, as of the last close before ' + esc(DATA.generated) + '. ' +
-      'Updated weekly. <a href="#" id="lockBtn">Lock this device</a></footer>';
+      '<p class="rules" style="margin-top:8px">' + esc(DATA.rules) + '</p></details>' + footer();
     app.innerHTML = h;
-    render("");
-    document.getElementById("q").addEventListener("input", function (e) { render(e.target.value); });
-    document.getElementById("lockBtn").addEventListener("click", function (e) {
-      e.preventDefault(); forgetKey(); location.reload();
+    var q = document.getElementById("q");
+    q.value = lastQuery;
+    render(lastQuery);
+    q.addEventListener("input", function (e) { lastQuery = e.target.value; render(lastQuery); });
+    window.scrollTo(0, homeScroll);
+  }
+
+  // ---------- charts (same style as the Value Screener page) ----------
+  function barChart(title, series, fmt) {
+    var W = 320, H = 118, top = 6, bottom = 16;
+    var vals = series.map(function (p) { return p.v; }).filter(function (v) { return v != null; });
+    var el = document.createElement("div");
+    el.className = "card chart";
+    var latest = series.length ? series[series.length - 1] : null;
+    var label = function (p) { return p ? "FY" + p.y + ": " + (p.v == null ? "—" : fmt(p.v)) : "—"; };
+    el.innerHTML = '<div class="ct"><span>' + esc(title) + '</span><span class="ro">' + esc(label(latest)) + '</span></div>';
+    if (!vals.length) { el.insertAdjacentHTML("beforeend", '<p class="muted">No data.</p>'); return el; }
+    if (vals.every(function (v) { return v === 0; })) {
+      el.insertAdjacentHTML("beforeend", '<p class="muted" style="margin-top:4px">Zero in every year.</p>'); return el;
+    }
+    var hi = Math.max(0, Math.max.apply(null, vals)), lo = Math.min(0, Math.min.apply(null, vals));
+    if (hi === lo) hi = lo + 1;
+    var plotH = H - top - bottom;
+    var y = function (v) { return top + (hi - v) / (hi - lo) * plotH; };
+    var band = W / series.length, bw = Math.min(24, band * 0.62), r = Math.min(4, bw / 2);
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(title) + ', last ' + series.length + ' years">';
+    series.forEach(function (p, i) {
+      var cx = band * i + band / 2, x0 = cx - bw / 2, x1 = cx + bw / 2;
+      svg += '<rect x="' + (band * i) + '" y="0" width="' + band + '" height="' + (H - bottom) + '" fill="transparent" data-i="' + i + '"/>';
+      if (p.v != null && p.v !== 0) {
+        var y0 = y(0), y1 = y(p.v), hgt = Math.abs(y0 - y1), rr = Math.min(r, hgt);
+        var d;
+        if (p.v > 0) d = "M" + x0 + "," + y0 + "V" + (y1 + rr) + "Q" + x0 + "," + y1 + " " + (x0 + rr) + "," + y1 +
+                         "H" + (x1 - rr) + "Q" + x1 + "," + y1 + " " + x1 + "," + (y1 + rr) + "V" + y0 + "Z";
+        else d = "M" + x0 + "," + y0 + "V" + (y1 - rr) + "Q" + x0 + "," + y1 + " " + (x0 + rr) + "," + y1 +
+                 "H" + (x1 - rr) + "Q" + x1 + "," + y1 + " " + x1 + "," + (y1 - rr) + "V" + y0 + "Z";
+        svg += '<path class="bar" data-i="' + i + '" d="' + d + '" fill="' + (p.v < 0 ? "var(--neg)" : "var(--series)") + '" pointer-events="none"/>';
+      }
+      svg += '<text class="yr" x="' + cx + '" y="' + (H - 3) + '" text-anchor="middle">’' + String(p.y).slice(-2) + '</text>';
     });
+    svg += '<line class="base" x1="0" x2="' + W + '" y1="' + y(0) + '" y2="' + y(0) + '"/></svg>';
+    el.insertAdjacentHTML("beforeend", svg);
+    var ro = el.querySelector(".ro"), bars = el.querySelectorAll(".bar");
+    function pick(i) {
+      el.classList.add("active");
+      Array.prototype.forEach.call(bars, function (b) { b.classList.toggle("on", b.getAttribute("data-i") === String(i)); });
+      ro.textContent = label(series[i]);
+    }
+    function clear() { el.classList.remove("active"); ro.textContent = label(latest); }
+    Array.prototype.forEach.call(el.querySelectorAll("rect[data-i]"), function (hit) {
+      var i = +hit.getAttribute("data-i");
+      hit.addEventListener("pointerenter", function () { pick(i); });
+      hit.addEventListener("click", function () { pick(i); });
+    });
+    el.querySelector("svg").addEventListener("pointerleave", function (e) { if (e.pointerType === "mouse") clear(); });
+    return el;
+  }
+
+  // ---------- company page ----------
+  var NOTE_HELP = {
+    "negative equity": "It owes more than it owns on paper. Allowed in this screen, but it leaves little cushion.",
+    "losses shrinking": "Still losing money, but less than the year before.",
+    "insiders net buying": "Executives or directors bought more stock than they sold on the open market in the last 180 days.",
+    "10-K not checked": "The latest annual report couldn’t be read, so the going-concern check wasn’t done."
+  };
+  function noteText(n) {
+    if (NOTE_HELP[n]) return NOTE_HELP[n];
+    var m;
+    if (n === "going-concern warning")
+      return "Going-concern warning: the auditor doubts the company can keep operating for another year without new money.";
+    if ((m = n.match(/^cash runway (\d+) mo$/)))
+      return "Only about " + m[1] + " months of cash left at its current burn rate. Companies in this spot usually sell new shares or borrow, often on bad terms.";
+    if ((m = n.match(/^shares \+(\d+)% in ([\d.]+)y$/)))
+      return "Share count up " + m[1] + "% in " + m[2] + " years: it keeps paying its way by issuing new stock, so each existing share owns less.";
+    if (n === "likely reverse split")
+      return "Likely reverse split: the share count suddenly dropped, which struggling companies do to lift a collapsing share price.";
+    if (n === "no real revenue yet")
+      return "Under $1M of revenue: no real business yet, so the stock is a bet on something that may never sell.";
+    if (/^growth may be from acquisitions/.test(n)) return "Revenue jumped, but it also spent heavily buying other companies, so part of the growth was bought rather than earned. " + n.replace(/^growth may be from acquisitions /, "Spent ") + ".";
+    if (/offering filing/.test(n)) return n + ": it filed to sell new shares, which can dilute owners.";
+    if (/^price down/.test(n) || /^recent discontinued/.test(n)) return n.charAt(0).toUpperCase() + n.slice(1) + ".";
+    return n;
+  }
+
+  function brief(c) {
+    var pill = c.status === "PASS" ? '<span class="pill good">Passed · ' + c.score + '/10</span>'
+      : c.status === "WEAK" ? '<span class="pill">No red flags, but weak · ' + c.score + '/10</span>'
+      : c.status === "CHECK" ? '<span class="pill bad">Check first: the business may have changed</span>'
+      : '<span class="pill bad">Failed: ' + esc((c.flags || [])[0] || "red flag") + '</span>';
+    var h = '<a class="back" href="#">‹ Small-Cap Growth</a>' +
+      '<h1>' + esc(c.name) + '</h1><p class="sub">' + esc(c.ticker) + (c.industry ? ' · ' + esc(c.industry) : '') + '</p>' +
+      '<div class="pxhead"><b>' + px(c.price) + '</b><span>share price at the last close before ' + esc(DATA.generated) +
+      ' · <a href="https://finance.yahoo.com/quote/' + encodeURIComponent(c.ticker.replace(".", "-")) +
+      '" target="_blank" rel="noopener">live price</a></span></div>' + pill;
+
+    h += '<h2>Snapshot</h2><div class="card"><div class="hero">' +
+      '<div><span>Company size</span><b>' + big(c.market_cap) + '</b></div>' +
+      '<div><span>Score</span><b>' + (c.status === "FAIL" ? '—' : c.score + '/10') + '</b></div>' +
+      '<div><span>Revenue growth</span><b>' + pct(c.rev_growth_pct) + '</b></div></div>' +
+      '<div class="grid2">' +
+      '<div><span>Revenue</span> <b>' + big(c.revenue) + '</b></div>' +
+      '<div><span>Insiders, net</span> <b>' + big((c.insider_buys || 0) - (c.insider_sells || 0)) + '</b></div>' +
+      '<div><span>Profit</span> <b>' + big(c.net_income) + '</b></div>' +
+      '<div><span>Cash flow</span> <b>' + big(c.ocf) + '</b></div>' +
+      '<div><span>Cash</span> <b>' + big(c.cash) + '</b></div>' +
+      '<div><span>Runway</span> <b>' + (c.runway_months == null ? "—" : num(c.runway_months, 0) + " mo") + '</b></div>' +
+      '<div><span>Gross margin</span> <b>' + (c.gross_margin == null ? "—" : num(c.gross_margin * 100, 0) + "%") + '</b></div>' +
+      '<div><span>Debt/equity</span> <b>' + num(c.debt_to_equity, 2) + '</b></div>' +
+      '<div><span>Shares, ~3y</span> <b>' + pct(c.share_change_pct) + '</b></div>' +
+      '<div><span>Stock-sale filings</span> <b>' + (c.offerings_12m == null ? "—" : c.offerings_12m) + '</b></div>' +
+      '</div></div>';
+
+    var warn = (c.flags || []).concat((c.notes || []).filter(function (n) {
+      return n !== "insiders net buying" && n !== "losses shrinking";
+    }));
+    if (warn.length) {
+      h += '<h2>Check before deciding</h2><div>' + warn.map(function (w) {
+        return '<div class="note"><b></b>' + esc(noteText(w)) + '</div>';
+      }).join('') + '</div>';
+    }
+
+    h += '<h2>What it does</h2><div class="card"><p>' +
+      (c.description ? esc(c.description) : 'No summary yet (descriptions fill in over a few weeks). Item 1 (“Business”) of the 10-K below describes it in the company’s own words.') +
+      '</p></div>';
+
+    var ex = c.explain;
+    if (ex) {
+      h += '<h2>Red-flag checks</h2><div class="card"><ul class="checks">' + ex.checks.map(function (k) {
+        var cls = k.passed === false ? ' class="fail"' : k.passed == null ? ' class="na"' : '';
+        return '<li' + cls + '>' + esc(k.name) + '<span>' + esc(k.detail) + '</span></li>';
+      }).join('') + '</ul><p class="muted" style="margin-top:8px">✕ = red flag (any one means FAIL) · ? = couldn’t check.</p></div>';
+
+      var total = ex.points.reduce(function (a, p) { return a + p.pts; }, 0);
+      h += '<h2>How the score was built</h2><div class="card"><ul class="checks pts">' + ex.points.map(function (p) {
+        var cls = p.pts > 0 ? '' : p.pts < 0 ? ' class="fail"' : ' class="na"';
+        var lab = p.pts > 0 ? '+' + p.pts : p.pts < 0 ? '−' + Math.abs(p.pts) : '0';
+        return '<li' + cls + '>' + esc(p.name) + ' <b class="ptsv">' + lab + '</b><span>' + esc(p.detail) + '</span></li>';
+      }).join('') + '</ul><p style="margin-top:8px"><b>Total: ' + Math.max(0, Math.min(10, total)) + ' of 10</b>' +
+        (c.status === "WEAK" && c.score >= 5 ? ' · WEAK because revenue grew 20% or less' : '') + '</p></div>';
+    }
+
+    h += '<h2>Recent years</h2><div class="charts" id="charts"></div>';
+
+    h += '<h2>Read before deciding</h2><div class="card links">';
+    if (c.tenk_url) h += '<a href="' + esc(c.tenk_url) + '" target="_blank" rel="noopener">Latest annual report (10-K)<span>' + esc(c.ten_k_date || "") + '</span></a>';
+    if (c.all_filings) h += '<a href="' + esc(c.all_filings) + '" target="_blank" rel="noopener">All SEC filings<span>EDGAR</span></a>';
+    h += '<a href="https://finance.yahoo.com/quote/' + encodeURIComponent(c.ticker.replace(".", "-")) + '" target="_blank" rel="noopener">Quote and news<span>Yahoo</span></a></div>';
+    h += footer();
+    app.innerHTML = h;
+    window.scrollTo(0, 0);
+
+    var box = document.getElementById("charts"), A = c.annual || [];
+    var ser = function (k) { return A.map(function (r) { return { y: r.y, v: r[k] == null ? null : r[k] }; }); };
+    if (A.length) {
+      box.appendChild(barChart("Revenue", ser("revenue"), big));
+      box.appendChild(barChart("Profit", ser("net_income"), big));
+      box.appendChild(barChart("Operating cash flow", ser("ocf"), big));
+    }
+    if ((c.shares_by_year || []).length) {
+      box.appendChild(barChart("Shares outstanding", c.shares_by_year, function (v) {
+        return v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : (v / 1e6).toFixed(1) + "M";
+      }));
+    }
+    if (!A.length && !(c.shares_by_year || []).length) box.innerHTML = '<p class="muted">No yearly data.</p>';
+  }
+
+  // ---------- routing ----------
+  var onHome = false;
+  function route() {
+    if (!DATA) return;
+    var m = location.hash.match(/^#\/(.+)$/);
+    var c = m && BY[decodeURIComponent(m[1])];
+    if (c) {
+      if (onHome) homeScroll = window.scrollY;
+      onHome = false;
+      brief(c);
+    } else {
+      onHome = true;
+      home();
+    }
+  }
+  window.addEventListener("hashchange", route);
+  document.addEventListener("click", function (e) {
+    if (e.target && e.target.id === "lockBtn") {
+      e.preventDefault(); forgetKey(); location.hash = ""; location.reload();
+    }
+  });
+
+  function boot(d) {
+    DATA = d;
+    DATA.companies.forEach(function (c) { BY[c.ticker] = c; });
+    route();
   }
 
   if (!RAW.locked) { boot(RAW); return; }

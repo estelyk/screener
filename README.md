@@ -112,7 +112,7 @@ model version) and compares its total return, dividends included, with SPY and V
 over the same days. The record is encrypted with your passphrase and published as
 `ledger.enc` next to the page. See "Track record" on the page; it can be downloaded as a CSV.
 
-## Small-cap tab (weekly moonshot screen)
+## Small-Cap Growth tab (weekly)
 Separate from the value model, which it never touches. `smallcap_screener.py` screens
 US-listed stocks priced $1–$10 from companies worth $20M–$500M. It fails only fatal red
 flags (going-concern warning, under 9 months of cash, shares up 150%+ in ~3 years,
@@ -123,5 +123,8 @@ shrinking losses, gross margin, insider buying). PASS also needs revenue growth 
   page locked with the same passphrase, so one unlock opens both pages.
 - The next Daily screen run publishes that page at `/smallcap/`; a "Small caps" link
   appears under the date on the main page. Those steps can't block the main page.
+- Track record (`smallcap_tracker.py`): every first-time PASS stock is held on paper
+  from that week and compared with IWM (Russell 2000); FAIL stocks are tracked as a
+  control group. Stored encrypted as `smallcap/ledger.enc`, like the value model's record.
 - Run it on your Mac: `python run_smallcap.py`, then `open smallcap_data/site/index.html`.
   For more options (value mode, other sizes): `python smallcap_screener.py --help`.

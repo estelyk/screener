@@ -97,7 +97,7 @@ jobs:
         continue-on-error: true
         run: |
           if [ -f smallcap_data/site/index.html ] && grep -q '"locked":1' smallcap_data/site/index.html; then
-            mkdir -p site/smallcap && cp smallcap_data/site/index.html site/smallcap/index.html
+            mkdir -p site/smallcap && cp -R smallcap_data/site/. site/smallcap/
             echo "Added small-cap page"
           else
             echo "No locked small-cap page yet; skipping"

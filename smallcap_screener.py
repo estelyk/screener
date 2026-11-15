@@ -361,6 +361,18 @@ def compute_metrics(facts: dict, price: float) -> dict:
     m["shares"] = max(counts) if counts else None
     m["market_cap"] = m["shares"] * price if m["shares"] else None
     m["share_change_pct"], m["share_change_years"], m["reverse_split"] = dilution(shares)
+
+    # Last 6 fiscal years for the company page charts (keyed by fiscal-year-end year).
+    by_year: dict[int, dict] = {}
+    for key, series in (("revenue", rev), ("net_income", ni), ("ocf", ocf)):
+        for end, v in series.items():
+            row = by_year.setdefault(int(end[:4]), {"y": int(end[:4])})
+            row[key] = v
+    m["annual"] = [by_year[y] for y in sorted(by_year)[-6:]]
+    per_year: dict[int, float] = {}
+    for d, v in shares.items():          # dates ascending: last one in a year wins
+        per_year[int(d[:4])] = v
+    m["shares_by_year"] = [{"y": y, "v": per_year[y]} for y in sorted(per_year)[-6:]]
     return m
 
 
@@ -451,6 +463,78 @@ def score_moonshot(m: dict) -> tuple[list[str], int, list[str]]:
     if m.get("going_concern") is None:
         notes.append("10-K not checked")
     return flags, max(0, min(10, pts)), notes
+
+
+def explain_moonshot(m: dict) -> dict:
+    """Plain-English breakdown of score_moonshot for the company page:
+    {"checks": [{name, passed True/False/None, detail}], "points": [{name, pts, max, detail}]}.
+    Must agree with score_moonshot (tested)."""
+    def money(v):
+        return fmt_money(v) if v is not None else "n/a"
+    checks = []
+    gc = m.get("going_concern")
+    checks.append({"name": "No going-concern warning", "passed": None if gc is None else not gc,
+                   "detail": "Latest annual report not checked" if gc is None else
+                   ("The auditor doubts the company can keep going" if gc else
+                    "The auditor raised no doubt about the company surviving")})
+    rw = m.get("runway_months")
+    checks.append({"name": f"At least {MOON_MIN_RUNWAY_MONTHS:.0f} months of cash",
+                   "passed": rw is None or rw >= MOON_MIN_RUNWAY_MONTHS,
+                   "detail": (f"Cash flow is positive ({money(m.get('ocf'))} last year)" if (m.get("ocf") or 0) > 0
+                              else "No cash-flow data" if rw is None
+                              else f"{money(m.get('cash'))} cash ÷ {money(-(m.get('ocf') or 0))} yearly burn ≈ {rw:.0f} months")})
+    sc = m.get("share_change_pct")
+    checks.append({"name": f"Share count up no more than {MOON_MAX_DILUTION_PCT:.0f}% in ~3 years",
+                   "passed": sc is None or sc <= MOON_MAX_DILUTION_PCT,
+                   "detail": "Not enough share history" if sc is None else
+                   f"{sc:+.0f}% over {m.get('share_change_years') or 0:.1f} years"})
+    checks.append({"name": "No sign of a reverse split", "passed": not m.get("reverse_split"),
+                   "detail": "Share count fell 40%+ between filings, usually a reverse split"
+                   if m.get("reverse_split") else "No sudden drop in share count"})
+    rev = m.get("revenue")
+    checks.append({"name": f"Revenue of at least {fmt_money(MOON_MIN_REVENUE)}",
+                   "passed": rev is not None and rev >= MOON_MIN_REVENUE,
+                   "detail": f"{money(rev)} in the latest year" if rev is not None else "No revenue reported"})
+
+    pts = []
+    g = m.get("rev_growth_pct")
+    acq = m.get("acquisition_growth")
+    gp = (2 if g is not None and g > 20 else 0) + (1 if g is not None and g > 50 and not acq else 0)
+    pts.append({"name": "Revenue growth", "pts": gp, "max": 3,
+                "detail": ("No growth data" if g is None else f"{g:+.0f}% last year") +
+                " · +2 if over 20%, +1 more if over 50%" +
+                (" (no bonus: growth may be from acquisitions)" if acq and g is not None and g > 50 else "")})
+    ni, ni_prev = m.get("net_income"), m.get("net_income_prev")
+    if ni is not None and ni > 0:
+        pp, d = 2, f"Profitable: {money(ni)} last year"
+    elif ni is not None and ni_prev is not None and ni > ni_prev:
+        pp, d = 1, f"Still losing money, but less: {money(ni)} vs {money(ni_prev)} the year before"
+    else:
+        pp, d = 0, "No profit data" if ni is None else f"Losing money: {money(ni)} last year"
+    pts.append({"name": "Profit", "pts": pp, "max": 2, "detail": d + " · +2 if profitable, +1 if losses are shrinking"})
+    gm = m.get("gross_margin")
+    pts.append({"name": "Gross margin", "pts": 1 if gm is not None and gm > 0.40 else 0, "max": 1,
+                "detail": ("Not reported" if gm is None else f"{gm * 100:.0f}% of sales left after direct costs") +
+                " · +1 if over 40%"})
+    ok_cash = (m.get("ocf") or 0) > 0 or (m.get("runway_months") or 0) >= 24
+    pts.append({"name": "Cash flow or runway", "pts": 1 if ok_cash else 0, "max": 1,
+                "detail": (f"Operating cash flow {money(m.get('ocf'))}" +
+                           (f", about {rw:.0f} months of cash" if rw is not None else "")) +
+                " · +1 if cash flow is positive or 2+ years of cash"})
+    ins = m.get("insider_net") or 0
+    pts.append({"name": "Insider buying", "pts": 2 if ins > 0 else 0, "max": 2,
+                "detail": f"Bought {money(m.get('insider_buys') or 0)}, sold {money(m.get('insider_sells') or 0)} "
+                "on the open market in 180 days · +2 if net buying"})
+    mc = m.get("market_cap")
+    pts.append({"name": "Room to grow", "pts": 1 if mc is not None and 50e6 <= mc <= 1e9 else 0, "max": 1,
+                "detail": f"Company worth {money(mc)} · +1 if $50M–$1B"})
+    pts.append({"name": "Little dilution", "pts": 1 if sc is not None and sc <= 20 else 0, "max": 1,
+                "detail": ("Not enough share history" if sc is None else f"Shares {sc:+.0f}% in ~3 years") +
+                " · +1 if up 20% or less"})
+    off = m.get("offerings_12m") or 0
+    pts.append({"name": "Recent stock-sale filings", "pts": -1 if off else 0, "max": 0,
+                "detail": f"{off} filing(s) to sell new shares in 12 months · −1 if any"})
+    return {"checks": checks, "points": pts}
 
 
 def score(m: dict) -> tuple[list[str], int, list[str]]:
@@ -634,6 +718,9 @@ def analyze(sec: Sec, c: dict, mcap_range: tuple | None = None) -> dict | None:
                 gc_path.write_text(json.dumps(m["going_concern"]))
 
     m["offerings_12m"] = len(recent_filings(subs, OFFERING_FORMS, 365))
+    m["industry"] = ((subs or {}).get("sicDescription") or "").strip().title() or None
+    m["ten_k_date"] = tenk["date"] if tenk else None
+    m["cik"] = c["cik"]
 
     buys = sells = 0.0
     for f in recent_filings(subs, {"4"}, 180)[:15]:

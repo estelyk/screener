@@ -247,7 +247,8 @@ def test_unlocked_page_escapes_script_and_has_styles(monkeypatch):
 def test_main_page_links_to_smallcaps(monkeypatch):
     monkeypatch.chdir(ROOT)
     t = (ROOT / "site_template.html").read_text()
-    assert 'href="smallcap/"' in t and "showSmallcapLink" in t
+    assert 'href="smallcap/"' in t and "showSmallcapLink" in t and "Small-Cap Growth" in t
+    assert "moonshot" not in t.lower()                                  # respectable name on the app
 
 
 def test_workflows_wired(monkeypatch):
@@ -269,9 +270,172 @@ def test_runner_keeps_last_page_when_run_is_nearly_empty(monkeypatch, tmp_path):
         (site / "index.html").write_text(run_smallcap.render(d))
         return site / "index.html"
     monkeypatch.setattr(run_smallcap, "write_page", write)
+    monkeypatch.setattr(run_smallcap.smallcap_tracker, "run", lambda rows: {"started": "x"})
+    monkeypatch.setattr(run_smallcap, "descriptions", lambda rows: {})   # no network in tests
 
     monkeypatch.setattr(run_smallcap.S, "main", lambda argv: ROWS[:2])
     assert run_smallcap.main() == 1 and not site.exists()          # too few: keep last week's page
     monkeypatch.setattr(run_smallcap.S, "main",
                         lambda argv: [dict(ROWS[0], ticker=f"T{i}") for i in range(25)])
     assert run_smallcap.main() == 0 and (site / "index.html").exists()
+
+
+# ---------- paper track record ----------
+import pandas as pd  # noqa: E402
+import smallcap_tracker as T  # noqa: E402
+
+
+def _series(start, values):
+    return pd.Series(values, index=pd.date_range(start, periods=len(values), freq="D"))
+
+
+WEEK1 = [dict(ROWS[0], ticker="ROCK", status="PASS", price=4.0),
+         dict(ROWS[1], ticker="DUDX", status="FAIL", price=1.5),
+         dict(ROWS[0], ticker="MEHX", status="WEAK", price=3.0)]
+
+
+def test_record_adds_pass_and_fail_once():
+    led = T.empty_ledger("2026-11-15")
+    assert T.record(led, WEEK1, "2026-11-15") == {"PASS": 1, "FAIL": 1}     # WEAK not tracked
+    assert T.record(led, WEEK1, "2026-11-22") == {"PASS": 0, "FAIL": 0}     # no duplicates
+    week3 = [dict(WEEK1[1], status="PASS")]                                  # a FAIL later passes
+    assert T.record(led, week3, "2026-11-29") == {"PASS": 1, "FAIL": 0}
+    assert [(e["ticker"], e["group"], e["start"]) for e in led["entries"]] == [
+        ("ROCK", "PASS", "2026-11-15"), ("DUDX", "FAIL", "2026-11-15"), ("DUDX", "PASS", "2026-11-29")]
+
+
+def test_returns_and_summary_against_iwm():
+    led = T.empty_ledger("2026-11-01")
+    T.record(led, WEEK1[:2], "2026-11-02")
+    hist = {"ROCK": _series("2026-11-01", [4, 4, 6, 12]),      # 3x from Nov 2
+            "DUDX": _series("2026-11-01", [2, 1.5, 1.0, 0.6]),  # -60%
+            "IWM": _series("2026-11-01", [200, 200, 205, 210])}  # +5%
+    assert T.update_returns(led, hist) == 2
+    s = T.summary(led)
+    assert round(s["pass"]["ret"], 2) == 2.0 and round(s["pass"]["bench"], 2) == 0.05
+    assert s["pass"]["beat"] == 1 and s["pass"]["up_2x"] == 1
+    assert round(s["fail"]["ret"], 2) == -0.6 and s["fail"]["down_half"] == 1
+    assert s["picks"][0]["ticker"] == "ROCK"
+    # a delisted stock keeps its last measured return
+    T.update_returns(led, {"IWM": hist["IWM"], "ROCK": hist["ROCK"]})
+    assert round(T.summary(led)["fail"]["ret"], 2) == -0.6
+
+
+def test_storage_round_trip_encrypted(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    led = T.empty_ledger("2026-11-15")
+    T.record(led, WEEK1, "2026-11-15")
+    T.save(led, "pass words here")
+    blob = (tmp_path / "smallcap_data/site/ledger.enc").read_text()
+    assert "ROCK" not in blob and json.loads(blob)["locked"] == 1
+    assert (tmp_path / "smallcap_data/cache/ledger.enc").exists()
+    loaded = T.load("pass words here", url="https://x/ledger.enc", fetch=lambda u: (None, True))
+    assert [e["ticker"] for e in loaded["entries"]] == ["ROCK", "DUDX"]
+
+
+def test_load_prefers_newer_published_copy(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    from lock import encrypt
+    old = T.empty_ledger("2026-11-01"); old["updated"] = "2026-11-08"
+    new = T.empty_ledger("2026-11-01"); new["updated"] = "2026-11-15"
+    T.record(new, WEEK1, "2026-11-15")
+    T.save(old, "pw")
+    blob = encrypt(json.dumps(new), "pw", "local")
+    assert len(T.load("pw", url="u", fetch=lambda u: (blob, True))["entries"]) == 2
+
+
+@pytest.mark.parametrize("problem", ["unreachable", "unreadable"])
+def test_load_stops_rather_than_start_empty(monkeypatch, tmp_path, problem):
+    monkeypatch.chdir(tmp_path)
+    if problem == "unreachable":
+        fetch = lambda u: (None, False)                     # noqa: E731  network error
+    else:
+        from lock import encrypt
+        bad = encrypt("{}", "other passphrase", "local")
+        fetch = lambda u: (bad, True)                       # noqa: E731
+    with pytest.raises(SystemExit):
+        T.load("pw", url="u", fetch=fetch)
+    assert T.load("pw", url="u", fetch=lambda u: (None, True))["entries"] == []   # first week: fine
+
+
+def test_page_shows_track_record_and_fail_label(monkeypatch):
+    monkeypatch.chdir(ROOT)
+    t = (ROOT / "smallcap_template.html").read_text()
+    assert "function trackRecord" in t and "DATA.tracking" in t and "failtag" in t
+
+
+# ---------- company page data ----------
+import random  # noqa: E402
+
+
+def _random_company(rng):
+    pick = lambda *xs: rng.choice(xs)  # noqa: E731
+    return dict(foreign=False, drop_3m=0.0, discontinued_ops=False,
+                going_concern=pick(True, False, None), runway_months=pick(None, 3.0, 8.9, 9.0, 30.0),
+                share_change_pct=pick(None, -10.0, 5.0, 20.0, 21.0, 149.0, 151.0), share_change_years=3.0,
+                reverse_split=pick(True, False), revenue=pick(None, 0.5e6, 1e6, 40e6),
+                rev_growth_pct=pick(None, -5.0, 20.0, 21.0, 50.0, 51.0, 300.0),
+                net_income=pick(None, -10e6, 0.0, 5e6), net_income_prev=pick(None, -20e6, -5e6, 1e6),
+                gross_margin=pick(None, 0.2, 0.4, 0.41), ocf=pick(None, -5e6, 0.0, 5e6),
+                insider_net=pick(0, -1.0, 1.0), insider_buys=1.0, insider_sells=0.0,
+                market_cap=pick(None, 30e6, 50e6, 1e9, 1.5e9), offerings_12m=pick(0, 1, 3),
+                equity=pick(None, -1.0, 5e6), acquisition_growth=pick(True, False), acq_spend_2y=1e6,
+                cash=1e6)
+
+
+def test_score_breakdown_always_matches_the_score():
+    rng = random.Random(7)
+    for _ in range(3000):
+        m = _random_company(rng)
+        flags, pts, _ = S.score_moonshot(m)
+        ex = S.explain_moonshot(m)
+        total = sum(p["pts"] for p in ex["points"])
+        assert max(0, min(10, total)) == pts, (m, ex)
+        assert any(k["passed"] is False for k in ex["checks"]) == bool(flags), (m, flags, ex["checks"])
+
+
+def test_history_for_charts():
+    f = facts([10e6, 20e6, 30e6, 40e6, 50e6, 60e6, 70e6], -5e6, 2e6, 9e6,
+              {"2020-07-01": 10e6, "2021-03-01": 11e6, "2021-09-01": 12e6, "2025-07-01": 15e6})
+    m = S.compute_metrics(f, 3.0)
+    assert [r["y"] for r in m["annual"]] == [2022, 2023, 2024, 2025, 2026, 2027]   # last 6 years
+    assert m["annual"][-1]["revenue"] == 70e6
+    assert m["shares_by_year"] == [{"y": 2020, "v": 10e6}, {"y": 2021, "v": 12e6}, {"y": 2025, "v": 15e6}]
+
+
+def test_page_data_has_company_page_fields():
+    r = dict(ROWS[0], annual=[{"y": 2025, "revenue": 1e6, "net_income": float("nan")}],
+             shares_by_year=[{"y": 2025, "v": 1e6}], cik=320193, industry="Services-Prepackaged Software",
+             ten_k_date="2026-02-01", gross_margin=0.5, offerings_12m=0)
+    d = run_smallcap.page_data([r], "Nov 15, 2026", 20e6, 500e6, descs={"ROCK": "Makes rockets."})
+    c = d["companies"][0]
+    assert c["description"] == "Makes rockets." and c["industry"].startswith("Services")
+    assert c["annual"][0]["net_income"] is None                       # NaN cleaned
+    assert "CIK=320193" in c["all_filings"]
+    assert len(c["explain"]["checks"]) == 5 and c["explain"]["points"]
+    json.dumps(d, allow_nan=False)
+
+
+def test_descriptions_cached_and_best_effort(monkeypatch, tmp_path):
+    monkeypatch.setattr(run_smallcap, "DESC_CACHE", tmp_path / "descriptions.json")
+    calls = []
+
+    def fetch(t):
+        calls.append(t)
+        if t == "BADX":
+            raise RuntimeError("Yahoo said no")
+        return f"{t} makes things. It sells them. It is growing. A fourth sentence is dropped."
+    rows = [{"ticker": "AAAX", "status": "FAIL"}, {"ticker": "BADX", "status": "PASS"},
+            {"ticker": "CCCX", "status": "PASS"}]
+    out = run_smallcap.descriptions(rows, fetch=fetch)
+    assert set(out) == {"AAAX", "CCCX"} and "fourth" not in out["CCCX"]
+    assert calls[:2] == ["BADX", "CCCX"]                              # PASS first
+    calls.clear()
+    run_smallcap.descriptions(rows, fetch=fetch)
+    assert calls == []                                                # cached, failures retried later
+
+
+def test_company_pages_are_linked():
+    t = (ROOT / "smallcap_template.html").read_text()
+    assert "function brief" in t and "hashchange" in t and 'href="#">‹ Small-Cap Growth' in t
+    assert "function barChart" in t and "Shares outstanding" in t

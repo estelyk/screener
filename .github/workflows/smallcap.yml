@@ -50,7 +50,7 @@ jobs:
           key: smallcap-data-${{ github.run_id }}
           restore-keys: smallcap-data-
 
-      - name: Small-cap screen
+      - name: Small-cap screen and track record
         run: python run_smallcap.py
 
       - name: Save small-cap data for next week
