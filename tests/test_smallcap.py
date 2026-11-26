@@ -1,5 +1,6 @@
 """Small-cap (moonshot) screen: scoring, red flags, filing parsing, the locked page,
 and quiet logs. No network: SEC and Yahoo are replaced with fake data."""
+import re
 import datetime as dt
 import json
 import os
@@ -656,3 +657,29 @@ def test_runner_passes_watchlist_and_keeps_it_out_of_track_record(monkeypatch, t
     assert run_smallcap.main() == 0
     assert seen["watch"] == "CURI,TSSI"
     assert "CURI" not in seen["tracked"] and len(seen["tracked"]) == 25
+
+
+def test_watchlist_editor_only_talks_to_github():
+    page = run_smallcap.render(run_smallcap.page_data(ROWS, "Nov 29, 2026", 20e6, 500e6), "pw words", "owner/screener")
+    t = (ROOT / "watchlist_edit.js").read_text()
+    assert 'data-wl="add"' in t and "function startPriceChart" in page and "function wlChange" in page
+    urls = set(re.findall(r'https://[a-z0-9.\-]+', t))
+    assert urls <= {"https://api.github.com", "https://github.com", "https://finance.yahoo.com", "https://www.sec.gov"}, urls
+    assert '"/actions/workflows/" + WLCFG.check.workflow' in t
+    assert 'workflow: "smallcap.yml"' in page and "localStorage.setItem(TOKSTORE" in t
+    assert "github_pat" not in page.replace("github_pat_…", "")   # no key baked into the page
+
+
+
+def test_value_page_pins_favorites(monkeypatch, tmp_path):
+    monkeypatch.chdir(ROOT)
+    import build_site, watchlist
+    page = build_site.render({"generated": "Nov 26, 2026", "settings": {},
+                              "companies": [{"ticker": "KO", "name": "Coca-Cola"}]})
+    assert "/*__WATCHLIST__*/" not in page and "function wlChange" in page
+    assert 'file: "value_watchlist.txt"' in page and "check: null" in page
+    assert '"watch":[]' in page                          # baked list from value_watchlist.txt
+    f = tmp_path / "v.txt"; f.write_text("# x\nKO\nko\n")
+    monkeypatch.setattr(watchlist, "ROOT", tmp_path)
+    (tmp_path / "value_watchlist.txt").write_text("KO\n")
+    assert '"watch":["KO"]' in build_site.render({"generated": "x", "settings": {}, "companies": []})

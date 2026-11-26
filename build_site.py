@@ -117,6 +117,8 @@ def excluded_companies() -> list[dict]:
 
 def render(data: dict, passphrase: str | None = None, label: str = "local") -> str:
     """Fill the template with the data, encrypted when a passphrase is given."""
+    from watchlist import ROOT, read_watchlist
+    data = {**data, "watch": read_watchlist(ROOT / "value_watchlist.txt")}   # pinned favorites (display only)
     payload = json.dumps(data, separators=(",", ":"))
     if passphrase:
         from lock import encrypt
@@ -124,6 +126,8 @@ def render(data: dict, passphrase: str | None = None, label: str = "local") -> s
     page = TEMPLATE.read_text()
     chart = Path(__file__).resolve().parent / "price_chart.js"   # price chart, shared with Small-Cap Growth
     page = page.replace("/*__PRICE_CHART__*/", chart.read_text() if chart.exists() else "")
+    wl = Path(__file__).resolve().parent / "watchlist_edit.js"           # pinned favorites, shared code
+    page = page.replace("/*__WATCHLIST__*/", wl.read_text() if wl.exists() else "")
     return page.replace("/*__DATA__*/", payload.replace("</", "<\\/"))
 
 

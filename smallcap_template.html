@@ -173,23 +173,32 @@ a.scard { text-decoration: none; color: inherit; }
 
   function watchSection(list, ql) {
     var missing = (DATA.watch_missing || []).filter(function (m) { return !ql || m.ticker.toLowerCase().indexOf(ql) === 0; });
-    if (!list.length && !missing.length) return '';
+    var pending = wlPending(ql);
+    if (WL.list) {                     // the file is the truth once we've read it
+      list = list.filter(function (c) { return WL.list.indexOf(c.ticker) >= 0; });
+      missing = missing.filter(function (m) { return WL.list.indexOf(m.ticker) >= 0; });
+    }
+    if (ql && !list.length && !missing.length && !pending.length) return '';
     var order = { PASS: 0, WEAK: 1, CHECK: 2, FAIL: 3 };
     list = list.slice().sort(function (a, b) { return (order[a.status] - order[b.status]) || (b.score - a.score); });
+    function rm(t) { return wlEnabled() ? '<button class="wlx" data-wl="remove" data-t="' + esc(t) + '" aria-label="Remove ' + esc(t) + '">×</button>' : ''; }
     var miss = missing.map(function (m) {
       return '<div class="li"><div class="l"><div>' + esc(m.ticker) + '</div><div class="muted">Not checked this week: ' +
-        esc(m.why) + '</div></div></div>';
+        esc(m.why) + '</div></div>' + rm(m.ticker) + '</div>';
+    }).join('') + pending.map(function (t) {
+      return '<div class="li"><div class="l"><div>' + esc(t) + '</div><div class="muted">Added · checked at the next Small-Cap run</div></div>' + rm(t) + '</div>';
     }).join('');
+    var n = list.length + missing.length + pending.length;
     return '<details class="tbl sec" data-sec="WATCH"' + (openSec.WATCH !== false ? ' open' : '') + ' style="margin-top:22px"><summary><b>★ Watchlist</b> · ' +
-      (list.length + missing.length) + '</summary><p class="muted" style="margin:6px 0 10px">Checked every week with the same rules, ' +
-      'even when they’re outside the 300 most-traded small caps. Tags show how each did. Edit the list in smallcap_watchlist.txt.</p>' +
-      '<div class="list">' + list.map(function (c) {
-        return '<a class="li" href="' + link(c) + '"><div class="l"><div>' + esc(c.ticker) + '</div>' +
+      n + '</summary><p class="muted" style="margin:6px 0 10px">Checked every week with the same rules, ' +
+      'even when they’re outside the 300 most-traded small caps. Tags show how each did.</p>' + wlControls() +
+      (n ? '<div class="list">' + list.map(function (c) {
+        return '<div class="li wlli"><a class="wla" href="' + link(c) + '"><div class="l"><div>' + esc(c.ticker) + '</div>' +
           '<span class="nm">' + esc(c.name) + '</span><div class="muted">' + esc(c.status === "PASS" ? "PASS" : c.status + (firstNote(c) ? ': ' + firstNote(c) : '')) +
           (c.watch_only ? ' · outside this week’s top 300' : '') + '</div></div>' +
           '<div class="r"><div class="pxrow">' + px(c.price) + '</div><div>' + statusText(c) + ' · ' + big(c.market_cap) + '</div></div>' +
-          '<span class="chev">›</span></a>';
-      }).join('') + miss + '</div></details>';
+          '<span class="chev">›</span></a>' + rm(c.ticker) + '</div>';
+      }).join('') + miss + '</div>' : '<p class="muted">Nothing on your watchlist yet.</p>') + '</details>';
   }
 
   function render(q) {
@@ -383,7 +392,7 @@ a.scard { text-decoration: none; color: inherit; }
       '<div class="pxchart" id="pxchart"><p class="muted">Loading price chart…</p></div>' + pill +
       (c.watch ? '<p class="muted" style="margin-top:8px">' + watchTag(c) + (c.watch_only
         ? 'On your watchlist. It wasn’t among this week’s 300 most-traded small caps (or is outside the $1–$10 / size range), so it was checked only because you’re watching it and isn’t part of the track record.'
-        : 'On your watchlist, and also part of this week’s regular screen.') + '</p>' : '');
+        : 'On your watchlist, and also part of this week’s regular screen.') + '</p>' : '') + starButton(c);
 
     h += '<h2>Snapshot</h2><div class="card"><div class="hero">' +
       '<div><span>Company size</span><b>' + big(c.market_cap) + '</b></div>' +
@@ -458,6 +467,31 @@ a.scard { text-decoration: none; color: inherit; }
   }
 
 /*__PRICE_CHART__*/
+  // ---------- watchlist: this page's settings (editing code: watchlist_edit.js) ----------
+  var WLCFG = {
+    file: "smallcap_watchlist.txt",
+    header: "# Small-Cap Growth watchlist\n# Checked every week, even outside the 300 most-traded small caps. One ticker per line.\n",
+    placeholder: "Add a ticker, e.g. GOGO",
+    baked: function () { return DATA.companies.filter(function (c) { return c.watch; }).map(function (c) { return c.ticker; }); },
+    added: function (t) { return t + " added. It’s checked at the next Small-Cap run (Sundays, or tap Check now)."; },
+    removed: function (t) { return t + " removed. It leaves the page after the next Small-Cap run."; },
+    check: { workflow: "smallcap.yml",
+             ask: "Start the Small-Cap check now? It takes a few hours. The results go online with the next daily update (weekdays around 5:15 pm ET).",
+             started: "Check started. Results appear after it finishes and the next daily update runs." }
+  };
+  // Tickers saved to the file that this week's page hasn't checked yet.
+  function wlPending(ql) {
+    if (!WL.list) return [];
+    var shown = {};
+    DATA.companies.forEach(function (c) { if (c.watch) shown[c.ticker] = 1; });
+    (DATA.watch_missing || []).forEach(function (m) { shown[m.ticker] = 1; });
+    return WL.list.filter(function (t) { return !shown[t] && (!ql || t.toLowerCase().indexOf(ql) === 0); });
+  }
+  function wlRefresh() {
+    if (onHome) { var y = window.scrollY; render(lastQuery); window.scrollTo(0, y); return; }
+    wlStarRefresh();
+  }
+/*__WATCHLIST__*/
   // ---------- routing ----------
   var onHome = false;
   function route() {
@@ -484,6 +518,7 @@ a.scard { text-decoration: none; color: inherit; }
     DATA = d;
     DATA.companies.forEach(function (c) { BY[c.ticker] = c; });
     route();
+    wlLoad().then(function (tok) { if (tok) wlRefresh(); }).catch(function () {});
   }
 
   if (!RAW.locked) { boot(RAW); return; }

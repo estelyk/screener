@@ -38,16 +38,9 @@ WATCHLIST = Path(__file__).resolve().parent / "smallcap_watchlist.txt"
 
 
 def read_watchlist(path: Path = WATCHLIST) -> list[str]:
-    """Tickers from smallcap_watchlist.txt: one per line (commas fine), # starts a comment."""
-    if not path.exists():
-        return []
-    out = []
-    for line in path.read_text().splitlines():
-        for w in line.split("#")[0].replace(",", " ").split():
-            w = w.strip().upper().lstrip("$")
-            if re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", w) and w not in out:
-                out.append(w)
-    return out[:50]
+    """Tickers from smallcap_watchlist.txt (see watchlist.py)."""
+    from watchlist import read_watchlist as _read
+    return _read(path)
 DESC_CACHE = BASE / "cache" / "descriptions.json"
 DESC_BATCH = 120   # new descriptions fetched per run (PASS and CHECK first); kept 6 months
 
@@ -136,6 +129,7 @@ def render(data: dict, passphrase: str | None = None, label: str = "local") -> s
         payload = json.dumps(encrypt(payload, passphrase, label), separators=(",", ":"))
     html = TEMPLATE.read_text().replace("/*__STYLE__*/", main_styles())
     html = html.replace("/*__PRICE_CHART__*/", (Path(__file__).resolve().parent / "price_chart.js").read_text())
+    html = html.replace("/*__WATCHLIST__*/", (Path(__file__).resolve().parent / "watchlist_edit.js").read_text())
     return html.replace("/*__DATA__*/", payload.replace("</", "<\\/"))
 
 
