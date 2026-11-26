@@ -138,8 +138,9 @@ def _closes(data, ticker, many):
     return s if len(s) else None
 
 
-def fetch(tickers: list[str], chunk: int = 25) -> dict:
-    """{ticker: ranges}. Best-effort: tickers Yahoo doesn't return are skipped."""
+def fetch(tickers: list[str], chunk: int = 25, _retry: bool = True) -> dict:
+    """{ticker: ranges}. Best-effort: tickers Yahoo doesn't return are retried once in
+    small batches, then skipped (write() keeps their previous chart)."""
     import logging
     import time
     import yfinance as yf
@@ -167,17 +168,27 @@ def fetch(tickers: list[str], chunk: int = 25) -> dict:
             r = build_ranges(daily, d1, d5)
             if r:
                 out[orig] = r
+    missed = [t for t in tickers if t not in out]
+    if _retry and missed:
+        time.sleep(5)                       # Yahoo often drops a batch when busy
+        out.update(fetch(missed, chunk=5, _retry=False))
     return out
 
 
 # ---------------------------------------------------------------- writing
-def write(charts: dict, key: bytes | None, site: Path = SITE) -> int:
+def write(charts: dict, key: bytes | None, site: Path = SITE, keep: list[str] = ()) -> int:
+    """New charts replace old ones. A ticker in `keep` (still on the page) that failed to
+    download this time keeps its previous chart instead of losing it."""
     px = site / "px"
     tmp = site / "px.new"
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
     for t, ranges in charts.items():
         (tmp / file_name(key, t)).write_text(seal({"ticker": t, "ranges": ranges}, key))
+    for t in keep:
+        old = px / file_name(key, t)
+        if t not in charts and old.exists():
+            shutil.copy2(old, tmp / old.name)
     shutil.rmtree(px, ignore_errors=True)
     tmp.rename(px)
     return len(charts)
@@ -213,7 +224,11 @@ def run(tickers: list[str], passphrase: str | None, label: str, site: Path = SIT
     if len(charts) < max(1, len(tickers) // 2):
         print(f"Price charts: only {len(charts)} of {len(tickers)} downloaded; keeping the previous ones.")
         return 0
-    n = write(charts, key, site)
+    n = write(charts, key, site, keep=tickers)
+    missed = [t for t in tickers if t not in charts]
+    if missed:
+        print(f"Price charts: no new prices for {', '.join(missed[:20])}"
+              f"{' …' if len(missed) > 20 else ''} (kept previous chart if there was one).")
     print(f"Price charts: wrote {n} of {len(tickers)}.")
     return n
 

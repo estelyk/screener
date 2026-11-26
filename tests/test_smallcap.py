@@ -569,3 +569,29 @@ def test_daily_value_chart_command_end_to_end(monkeypatch, tmp_path):
     files = sorted(p.name for p in (tmp_path / "px").iterdir())
     assert files == sorted(P.file_name(key, t) for t in ("KO", "AAPL"))
     assert (tmp_path / "index.html").read_text() == page
+
+
+def test_failed_download_keeps_previous_chart(tmp_path):
+    key = P.page_key("pw words", "owner/screener")
+    P.write({"CURI": {"1Y": [[1, 3.0]]}, "TSSI": {"1Y": [[1, 7.0]]}}, key, tmp_path)
+    # next run: Yahoo returns TSSI only; CURI is still on the page, DROP is not
+    P.write({"TSSI": {"1Y": [[2, 7.5]]}}, key, tmp_path, keep=["TSSI", "CURI"])
+    names = {p.name for p in (tmp_path / "px").iterdir()}
+    assert names == {P.file_name(key, "CURI"), P.file_name(key, "TSSI")}
+    assert P.unseal((tmp_path / "px" / P.file_name(key, "CURI")).read_text(), key)["ranges"]["1Y"] == [[1, 3.0]]
+    assert P.unseal((tmp_path / "px" / P.file_name(key, "TSSI")).read_text(), key)["ranges"]["1Y"] == [[2, 7.5]]
+    # a company that left the page loses its file
+    P.write({"TSSI": {"1Y": [[3, 8.0]]}}, key, tmp_path, keep=["TSSI"])
+    assert {p.name for p in (tmp_path / "px").iterdir()} == {P.file_name(key, "TSSI")}
+
+
+def test_fetch_retries_missed_tickers(monkeypatch):
+    import sys, types
+    calls = []
+    def download(batch, **kw):
+        calls.append((tuple(batch), kw["interval"]))
+        raise RuntimeError("yahoo busy") if len(calls) <= 3 else RuntimeError("still busy")
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(download=download))
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    assert P.fetch(["CURI", "TSSI"]) == {}
+    assert len(calls) == 6                          # first pass + one retry pass, no more
