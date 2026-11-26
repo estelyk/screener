@@ -139,10 +139,13 @@ a.scard { text-decoration: none; color: inherit; }
   function statusText(c) { return c.status === "FAIL" ? '<span class="failtag">FAIL</span>' : c.score + '/10'; }
   function firstNote(c) { return (c.flags && c.flags[0]) || (c.notes && c.notes[0]) || ""; }
 
+  function watchTag(c) { return c.watch ? '<span class="wtag">★ Watchlist</span> ' : ''; }
+
   function card(c) {
     var chips = (c.notes || []).map(function (n) { return '<span class="chip">' + esc(n) + '</span>'; });
     return '<a class="card scard sig" href="' + link(c) + '"><div class="row1"><div style="min-width:0">' +
-      '<span class="tk">' + esc(c.ticker) + '</span> <span class="nm">' + esc(c.name) + '</span></div>' +
+      '<span class="tk">' + esc(c.ticker) + '</span> <span class="nm">' + esc(c.name) + '</span>' +
+      (c.watch ? '<div>' + watchTag(c) + '</div>' : '') + '</div>' +
       '<div><div class="pxbig">' + px(c.price) + ' <span class="chev">›</span></div>' +
       '<div class="pxsub"><span class="score hi">' + c.score + '/10</span></div></div></div>' +
       '<div class="nums"><span>Size <b>' + big(c.market_cap) + '</b></span>' +
@@ -153,7 +156,7 @@ a.scard { text-decoration: none; color: inherit; }
   }
 
   function row(c) {
-    return '<a class="li" href="' + link(c) + '"><div class="l"><div>' + esc(c.ticker) + '</div>' +
+    return '<a class="li" href="' + link(c) + '"><div class="l"><div>' + esc(c.ticker) + ' ' + watchTag(c) + '</div>' +
       '<span class="nm">' + esc(c.name) + '</span><div class="muted">' + esc(firstNote(c)) + '</div></div>' +
       '<div class="r"><div class="pxrow">' + px(c.price) + '</div><div>' + statusText(c) + ' · ' + big(c.market_cap) + '</div></div>' +
       '<span class="chev">›</span></a>';
@@ -168,14 +171,37 @@ a.scard { text-decoration: none; color: inherit; }
       '</p>' + body + '</details>';
   }
 
+  function watchSection(list, ql) {
+    var missing = (DATA.watch_missing || []).filter(function (m) { return !ql || m.ticker.toLowerCase().indexOf(ql) === 0; });
+    if (!list.length && !missing.length) return '';
+    var order = { PASS: 0, WEAK: 1, CHECK: 2, FAIL: 3 };
+    list = list.slice().sort(function (a, b) { return (order[a.status] - order[b.status]) || (b.score - a.score); });
+    var miss = missing.map(function (m) {
+      return '<div class="li"><div class="l"><div>' + esc(m.ticker) + '</div><div class="muted">Not checked this week: ' +
+        esc(m.why) + '</div></div></div>';
+    }).join('');
+    return '<details class="tbl sec" data-sec="WATCH"' + (openSec.WATCH !== false ? ' open' : '') + ' style="margin-top:22px"><summary><b>★ Watchlist</b> · ' +
+      (list.length + missing.length) + '</summary><p class="muted" style="margin:6px 0 10px">Checked every week with the same rules, ' +
+      'even when they’re outside the 300 most-traded small caps. Tags show how each did. Edit the list in smallcap_watchlist.txt.</p>' +
+      '<div class="list">' + list.map(function (c) {
+        return '<a class="li" href="' + link(c) + '"><div class="l"><div>' + esc(c.ticker) + '</div>' +
+          '<span class="nm">' + esc(c.name) + '</span><div class="muted">' + esc(c.status === "PASS" ? "PASS" : c.status + (firstNote(c) ? ': ' + firstNote(c) : '')) +
+          (c.watch_only ? ' · outside this week’s top 300' : '') + '</div></div>' +
+          '<div class="r"><div class="pxrow">' + px(c.price) + '</div><div>' + statusText(c) + ' · ' + big(c.market_cap) + '</div></div>' +
+          '<span class="chev">›</span></a>';
+      }).join('') + miss + '</div></details>';
+  }
+
   function render(q) {
-    var by = { PASS: [], WEAK: [], CHECK: [], FAIL: [] };
+    var by = { PASS: [], WEAK: [], CHECK: [], FAIL: [] }, watched = [];
     var ql = (q || "").trim().toLowerCase();
     DATA.companies.forEach(function (c) {
       if (ql && c.ticker.toLowerCase().indexOf(ql) !== 0 && c.name.toLowerCase().indexOf(ql) < 0) return;
+      if (c.watch) watched.push(c);
+      if (c.watch_only) return;                 // shown in the watchlist only, not in this week's screen
       (by[c.status] || (by[c.status] = [])).push(c);
     });
-    var h = '';
+    var h = watchSection(watched, ql);
     ["PASS", "WEAK", "CHECK", "FAIL"].forEach(function (s) { h += section(s, by[s] || [], !!openSec[s] || !!ql); });
     if (!h) h = '<p class="empty" style="margin-top:16px">No matches in this week’s screen.</p>';
     var body = document.getElementById("body");
@@ -354,7 +380,10 @@ a.scard { text-decoration: none; color: inherit; }
       '<div class="pxhead"><b>' + px(c.price) + '</b><span>share price at the last close before ' + esc(DATA.generated) +
       ' · <a href="https://finance.yahoo.com/quote/' + encodeURIComponent(c.ticker.replace(".", "-")) +
       '" target="_blank" rel="noopener">live price</a></span></div>' +
-      '<div class="pxchart" id="pxchart"><p class="muted">Loading price chart…</p></div>' + pill;
+      '<div class="pxchart" id="pxchart"><p class="muted">Loading price chart…</p></div>' + pill +
+      (c.watch ? '<p class="muted" style="margin-top:8px">' + watchTag(c) + (c.watch_only
+        ? 'On your watchlist. It wasn’t among this week’s 300 most-traded small caps (or is outside the $1–$10 / size range), so it was checked only because you’re watching it and isn’t part of the track record.'
+        : 'On your watchlist, and also part of this week’s regular screen.') + '</p>' : '');
 
     h += '<h2>Snapshot</h2><div class="card"><div class="hero">' +
       '<div><span>Company size</span><b>' + big(c.market_cap) + '</b></div>' +

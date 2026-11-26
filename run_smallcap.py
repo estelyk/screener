@@ -33,7 +33,21 @@ MAIN_TEMPLATE = Path("site_template.html")
 FIELDS = ["ticker", "name", "status", "score", "price", "market_cap", "revenue", "rev_growth_pct",
           "net_income", "ocf", "cash", "runway_months", "debt_to_equity", "share_change_pct",
           "insider_buys", "insider_sells", "tenk_url", "ten_k_date", "industry", "gross_margin",
-          "offerings_12m"]
+          "offerings_12m", "watch", "watch_only"]
+WATCHLIST = Path(__file__).resolve().parent / "smallcap_watchlist.txt"
+
+
+def read_watchlist(path: Path = WATCHLIST) -> list[str]:
+    """Tickers from smallcap_watchlist.txt: one per line (commas fine), # starts a comment."""
+    if not path.exists():
+        return []
+    out = []
+    for line in path.read_text().splitlines():
+        for w in line.split("#")[0].replace(",", " ").split():
+            w = w.strip().upper().lstrip("$")
+            if re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", w) and w not in out:
+                out.append(w)
+    return out[:50]
 DESC_CACHE = BASE / "cache" / "descriptions.json"
 DESC_BATCH = 120   # new descriptions fetched per run (PASS and CHECK first); kept 6 months
 
@@ -59,8 +73,8 @@ def descriptions(rows: list[dict], fetch=None) -> dict[str, str]:
     fetch = fetch or profiles._fetch_one
     cache = json.loads(DESC_CACHE.read_text()) if DESC_CACHE.exists() else {}
     order = {"PASS": 0, "CHECK": 1, "WEAK": 2, "FAIL": 3}
-    ranked = [r["ticker"] for r in sorted(rows, key=lambda r: order.get(r.get("status"), 9))]
-    priority = [r["ticker"] for r in rows if r.get("status") in ("PASS", "CHECK")]
+    ranked = [r["ticker"] for r in sorted(rows, key=lambda r: (not r.get("watch"), order.get(r.get("status"), 9)))]
+    priority = [r["ticker"] for r in rows if r.get("watch") or r.get("status") in ("PASS", "CHECK")]
     now = time.time()
     todo = profiles.plan_fetch(cache, priority, ranked, now, batch=DESC_BATCH)
     for t in todo:
@@ -79,7 +93,8 @@ def descriptions(rows: list[dict], fetch=None) -> dict[str, str]:
 
 
 def page_data(rows: list[dict], generated: str, min_mcap: float, max_mcap: float | None,
-              mode: str = "moonshot", descs: dict | None = None) -> dict:
+              mode: str = "moonshot", descs: dict | None = None,
+              watch_missing: list | None = None) -> dict:
     companies = []
     for r in rows:
         if r.get("status") == "SKIP":
@@ -95,7 +110,8 @@ def page_data(rows: list[dict], generated: str, min_mcap: float, max_mcap: float
             e["all_filings"] = (f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
                                 f"&CIK={int(r['cik'])}&type=&dateb=&owner=include&count=40")
         companies.append(e)
-    counts = {s: sum(c["status"] == s for c in companies) for s in ("PASS", "WEAK", "CHECK", "FAIL")}
+    counts = {s: sum(c["status"] == s and not c.get("watch_only") for c in companies)
+              for s in ("PASS", "WEAK", "CHECK", "FAIL")}
     def short(v):
         return f"${v / 1e9:g}B" if v >= 1e9 else f"${v / 1e6:g}M"
     scope = f"stocks $1–$10, companies {short(min_mcap)}–{short(max_mcap) if max_mcap else 'any size'}"
@@ -104,7 +120,7 @@ def page_data(rows: list[dict], generated: str, min_mcap: float, max_mcap: float
         rules = rules.replace(a, b)
     rules += f" PASS also requires revenue growth over {S.MOON_MIN_GROWTH_PCT:.0f}%." if mode == "moonshot" else ""
     return {"generated": generated, "scope": scope, "counts": counts, "rules": rules,
-            "companies": companies}
+            "companies": companies, "watch_missing": watch_missing or []}
 
 
 def main_styles() -> str:
@@ -136,20 +152,23 @@ def main() -> int:
     min_mcap = float(os.environ.get("SMALLCAP_MIN_MCAP", "20e6"))
     max_mcap = float(os.environ.get("SMALLCAP_MAX_MCAP", "500e6"))
     count = os.environ.get("SMALLCAP_CANDIDATES", "300")
+    watch = read_watchlist()
     rows = S.main(["--mode", "moonshot", "--min-mcap", str(min_mcap), "--max-mcap", str(max_mcap),
-                   "--max-candidates", count,
+                   "--max-candidates", count, "--watch", ",".join(watch),
                    "--out", str(BASE / "output"), "--cache", str(BASE / "cache")])
-    if len(rows) < 20:
+    screened = [r for r in rows if not r.get("watch_only")]
+    if len(screened) < 20:
         # Something went wrong (e.g. Yahoo or SEC blocked us): keep last week's page.
-        print(f"Only {len(rows)} companies analyzed; not replacing the page.")
+        print(f"Only {len(screened)} companies analyzed; not replacing the page.")
         return 1
     try:
         descs = descriptions(rows)
     except Exception as e:  # noqa: BLE001  the page still builds without them
         print(f"(Descriptions not updated: {type(e).__name__})")
         descs = {}
-    data = page_data(rows, datetime.now().strftime("%b %-d, %Y"), min_mcap, max_mcap, descs=descs)
-    data["tracking"] = smallcap_tracker.run(rows)
+    data = page_data(rows, datetime.now().strftime("%b %-d, %Y"), min_mcap, max_mcap, descs=descs,
+                     watch_missing=getattr(S.main, "watch_missing", []))
+    data["tracking"] = smallcap_tracker.run(screened)   # watchlist-only picks stay out of the test
     path = write_page(data)
     print(f"Wrote {path} ({len(data['companies'])} companies)")
     try:  # price charts are best-effort; the daily job refreshes them on weekdays

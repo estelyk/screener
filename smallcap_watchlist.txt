@@ -1,0 +1,6 @@
+# Small-Cap Growth watchlist
+# These tickers are checked every week with the same rules, even when they fall
+# outside the 300 most-traded small caps. One ticker per line; lines starting with # are ignored.
+# Up to 50. Changes show up after the next weekly run (Sundays).
+CURI
+TSSI

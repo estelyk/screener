@@ -829,6 +829,9 @@ def main(argv: list[str] | None = None) -> list[dict]:
                     help="how many US companies in the market-cap range to analyze "
                          "(most liquid first)")
     ap.add_argument("--tickers", help="comma list to analyze instead of the whole market")
+    ap.add_argument("--watch", default="",
+                    help="comma list always analyzed on top of the normal screen, whatever "
+                         "their price, volume, size or rank (your watchlist)")
     ap.add_argument("--include-foreign", action="store_true",
                     help="list foreign filers (20-F/40-F) in the report as SKIP")
     ap.add_argument("--out", default="output")
@@ -894,14 +897,54 @@ def main(argv: list[str] | None = None) -> list[dict]:
         flags, pts, notes = scorer(m)
         rows.append({**c, **m, "status": status_for(m, flags, pts, args.mode), "score": pts,
                      "red_flags": "; ".join(flags), "notes": "; ".join(notes)})
+    # Watchlist: always analyzed, whatever their price, volume, size or rank. Rows that
+    # only made it in this way are marked watch_only (kept out of counts and track record).
+    watch = [w.strip().upper() for w in (args.watch or "").split(",") if w.strip()]
+    seen = {r["ticker"] for r in rows}
+    by_ticker = {u["ticker"]: u for u in universe}
+    watch_missing = []
+    for w in watch:
+        if w in seen:
+            continue
+        u, p = by_ticker.get(w), prices.get(w)
+        if not u:
+            watch_missing.append({"ticker": w, "why": "not found in the SEC list of listed companies"})
+            continue
+        if not p:
+            watch_missing.append({"ticker": w, "why": "no price from Yahoo this week"})
+            continue
+        c = {**u, **p}
+        try:
+            m = analyze(sec, c, None)
+        except Exception as e:  # noqa: BLE001
+            watch_missing.append({"ticker": w, "why": f"couldn't read its filings ({type(e).__name__})"})
+            continue
+        if not m:
+            watch_missing.append({"ticker": w, "why": "no usable annual financials at the SEC"})
+            continue
+        if m.get("foreign"):
+            watch_missing.append({"ticker": w, "why": "foreign filer (20-F/40-F); not checked"})
+            continue
+        flags, pts, notes = scorer(m)
+        rows.append({**c, **m, "status": status_for(m, flags, pts, args.mode), "score": pts,
+                     "red_flags": "; ".join(flags), "notes": "; ".join(notes), "watch_only": True})
+    for r in rows:
+        r["watch"] = r["ticker"] in watch
+    if watch:
+        print(f"  watchlist: {len(watch) - len(watch_missing)} of {len(watch)} checked"
+              + ("" if QUIET or not watch_missing        # public logs: no tickers
+                 else f"; missing {', '.join(m['ticker'] for m in watch_missing)}"))
+    main.watch_missing = watch_missing
+
     print(f"  (skipped {out_of_range} outside the market-cap range and {len(foreign)} "
           f"foreign filers{' — listed in report' if args.include_foreign else ''})")
 
     order = {"PASS": 0, "WEAK": 1, "CHECK": 2, "FAIL": 3, "SKIP": 4}
     rows.sort(key=lambda r: (order[r["status"]], -r["score"], -(r.get("market_cap") or 0)))
     write_outputs(rows, Path(args.out), args.mode)
-    counts = {s: sum(r["status"] == s for r in rows) for s in order}
-    print("\n" + ", ".join(f"{n} {s}" for s, n in counts.items()) + f" of {len(rows)} analyzed.")
+    screened = [r for r in rows if not r.get("watch_only")]
+    counts = {s: sum(r["status"] == s for r in screened) for s in order}
+    print("\n" + ", ".join(f"{n} {s}" for s, n in counts.items()) + f" of {len(screened)} analyzed.")
     shown = [r for r in rows if r["status"] in ("PASS", "WEAK", "CHECK")]
     for r in ([] if QUIET else shown[:20]):
         print(f"  {r['status']:5} {r['ticker']:6} {r['score']:>2}/10  ${r['price']:.2f}  "

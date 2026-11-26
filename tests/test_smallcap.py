@@ -595,3 +595,64 @@ def test_fetch_retries_missed_tickers(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda s: None)
     assert P.fetch(["CURI", "TSSI"]) == {}
     assert len(calls) == 6                          # first pass + one retry pass, no more
+
+
+def test_watchlist_file_parsing(tmp_path):
+    f = tmp_path / "w.txt"
+    f.write_text("# my list\nCURI\n tssi  # AI racks\n$GOGO, brk.b\nCURI\nnot a ticker!!\n")
+    assert run_smallcap.read_watchlist(f)[:4] == ["CURI", "TSSI", "GOGO", "BRK.B"]
+    assert run_smallcap.read_watchlist(tmp_path / "missing.txt") == []
+    assert run_smallcap.read_watchlist(ROOT / "smallcap_watchlist.txt") == ["CURI", "TSSI"]
+
+
+def test_watchlist_rows_shown_but_not_counted_or_tracked():
+    rows = [dict(r) for r in ROWS]
+    extra = dict(rows[0], ticker="CURI", name="CuriosityStream", watch=True, watch_only=True, status="PASS")
+    rows[1]["watch"] = True
+    data = run_smallcap.page_data(rows + [extra], "Nov 29, 2026", 20e6, 500e6,
+                                  watch_missing=[{"ticker": "ZZZZ", "why": "not found"}])
+    base = run_smallcap.page_data(ROWS, "Nov 29, 2026", 20e6, 500e6)
+    assert data["counts"] == base["counts"]                       # watch-only not counted
+    cur = next(c for c in data["companies"] if c["ticker"] == "CURI")
+    assert cur["watch"] and cur["watch_only"]
+    assert next(c for c in data["companies"] if c["ticker"] == rows[1]["ticker"])["watch"] is True
+    assert data["watch_missing"][0]["ticker"] == "ZZZZ"
+    page = run_smallcap.render(data)
+    assert "function watchSection" in page and "★ Watchlist" in page
+
+
+def test_watchlist_ticker_outside_top_n_is_still_checked(fake_market, monkeypatch, capsys):
+    """SMCX ranks 3rd by trading, so with --max-candidates 2 it's normally not checked.
+    On the watchlist it is, marked watch_only; SMAX (watched and in the top 2) isn't."""
+    monkeypatch.setattr(S, "QUIET", True)
+    out = fake_market
+    rows = S.main(["--max-mcap", "500e6", "--max-candidates", "2", "--watch", "SMCX,SMAX,NOPE,FRNX",
+                   "--out", str(out / "o"), "--cache", str(out / "c")])
+    by = {r["ticker"]: r for r in rows}
+    assert sorted(by) == ["SMAX", "SMBX", "SMCX"]
+    assert by["SMCX"]["watch_only"] and by["SMCX"]["watch"]
+    assert by["SMAX"]["watch"] and not by["SMAX"].get("watch_only")
+    assert not by["SMBX"]["watch"]
+    assert {m["ticker"] for m in S.main.watch_missing} == {"NOPE", "FRNX"}
+    logs = capsys.readouterr().out
+    assert "watchlist: 2 of 4 checked" in logs
+    assert not any(t in logs for t in ("SMCX", "NOPE", "FRNX")), "public logs: no tickers"
+
+
+def test_runner_passes_watchlist_and_keeps_it_out_of_track_record(monkeypatch, tmp_path):
+    monkeypatch.chdir(ROOT)
+    seen = {}
+    monkeypatch.setattr(run_smallcap, "write_page", lambda d: tmp_path / "x")
+    monkeypatch.setattr(run_smallcap, "descriptions", lambda rows: {})
+    import smallcap_prices
+    monkeypatch.setattr(smallcap_prices, "run", lambda *a, **k: 0)
+    monkeypatch.setattr(run_smallcap.smallcap_tracker, "run",
+                        lambda rows: seen.setdefault("tracked", [r["ticker"] for r in rows]) and {})
+    def fake_main(argv):
+        seen["watch"] = argv[argv.index("--watch") + 1]
+        return [dict(ROWS[0], ticker=f"T{i}") for i in range(25)] + \
+               [dict(ROWS[0], ticker="CURI", watch=True, watch_only=True)]
+    monkeypatch.setattr(run_smallcap.S, "main", fake_main)
+    assert run_smallcap.main() == 0
+    assert seen["watch"] == "CURI,TSSI"
+    assert "CURI" not in seen["tracked"] and len(seen["tracked"]) == 25
